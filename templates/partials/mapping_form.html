@@ -1,0 +1,49 @@
+<form class="mapping-form glass-panel" hx-post="/api/mapping/{{ file.id }}" hx-target="#file-{{ file.id }}" hx-swap="outerHTML">
+    <h4>Configure Extraction</h4>
+    <div class="mapping-grid">
+        
+        {% if 'Needs Sheet' in file.status %}
+        <div class="mapping-row" style="grid-column: 1 / -1;">
+            <label>TARGET SHEET</label>
+            <select name="selected_sheet" class="fancy-select" required>
+                <option value="">-- Choose State Sheet --</option>
+                {% for sheet in file.sheet_names %}
+                <option value="{{ sheet }}" {% if sheet == file.selected_sheet %}selected{% endif %}>{{ sheet }}</option>
+                {% endfor %}
+            </select>
+            <small style="color: #64748b; font-size: 0.75rem;">This workbook contains multiple sheets. Please map the one reflecting your state.</small>
+        </div>
+        {% else %}
+            {% if file.available_branches %}
+            <div class="mapping-row" style="grid-column: 1 / -1;">
+                <label>TARGET BRANCHES (Select multiple)</label>
+                <select name="selected_branches" class="fancy-select" multiple style="height: 100px;">
+                    {% for branch in file.available_branches %}
+                    <option value="{{ branch }}" {% if branch in file.selected_branches %}selected{% endif %}>{{ branch }}</option>
+                    {% endfor %}
+                </select>
+                <small style="color: #64748b; font-size: 0.75rem;">Hold CMD/CTRL to select multiple. Only rows matching these numeric codes will be exported.</small>
+            </div>
+            {% endif %}
+            
+            {% for target in targets %}
+            <div class="mapping-row">
+                <label>{{ target }}</label>
+                <select name="{{ target }}" class="fancy-select" {% if file.mapped_fields[target] %}style="border-color: #4CAF50;"{% endif %} required>
+                    <option value="">-- Select Column --</option>
+                    <option value="__NA__" {% if file.mapped_fields[target] == '__NA__' %}selected{% endif %}>N/A (Column Missing)</option>
+                    {% for header in file.headers %}
+                    <option value="{{ header }}" {% if file.mapped_fields[target] == header %}selected{% endif %}>
+                        {{ header }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endfor %}
+        {% endif %}
+        
+    </div>
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Save Configuration</button>
+    </div>
+</form>

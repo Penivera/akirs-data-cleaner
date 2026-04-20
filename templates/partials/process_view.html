@@ -1,0 +1,18 @@
+<section class="upload-zone" id="upload-zone">
+    <form id="upload-form" hx-post="/api/upload" hx-target="#file-list" hx-swap="afterbegin" enctype="multipart/form-data">
+        <div class="drop-area">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+            <p>Click or drag Excel/CSV files here</p>
+            <input type="file" id="fileElem" name="file" multiple accept=".xlsx, .xls, .csv" onchange="document.getElementById('upload-form').dispatchEvent(new Event('submit', {cancelable: true, bubbles: true})); htmx.trigger(this.form, 'submit')">
+        </div>
+    </form>
+</section>
+
+<section class="file-list-container">
+    <h2>Batch Queue</h2>
+    <div id="file-list" class="file-list">
+        {% for file in files %}
+            {% include 'partials/file_card.html' %}
+        {% endfor %}
+    </div>
+</section>

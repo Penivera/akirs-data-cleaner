@@ -1,0 +1,35 @@
+<header>
+    <h1><span class="gradient-text">Cleaned</span> Data</h1>
+    <p>View and batch download all your historically processed CSV files.</p>
+</header>
+
+<section class="gallery-section">
+    <form id="batch-download-form" action="/api/download-batch" method="POST">
+        <div class="gallery-toolbar">
+            <button type="submit" class="btn btn-primary" id="batch-download-btn">Download Selected (ZIP)</button>
+        </div>
+
+        <div class="file-list">
+            {% for file in cleaned_files %}
+            <div class="file-card">
+                <div class="file-header">
+                    <div class="file-info" style="flex-direction: row; align-items: center; gap: 1rem;">
+                        <input type="checkbox" name="files" value="{{ file.name }}" style="transform: scale(1.2);">
+                        <div>
+                            <span class="file-name">{{ file.name }}</span>
+                            <span style="font-size: 0.8rem; color: #94a3b8; display: block;">{{ file.size }} MB</span>
+                        </div>
+                    </div>
+                    <div class="file-actions">
+                        <a href="/api/download/{{ file.name }}" class="btn btn-primary" style="text-decoration: none; display: inline-block;">Download</a>
+                    </div>
+                </div>
+            </div>
+            {% else %}
+            <div class="glass-panel" style="text-align: center; padding: 2rem;">
+                <p>No cleaned data found in the directory.</p>
+            </div>
+            {% endfor %}
+        </div>
+    </form>
+</section>

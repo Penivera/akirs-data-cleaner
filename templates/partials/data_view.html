@@ -1,0 +1,21 @@
+<div class="data-table-container glass-panel" style="margin-top: 1rem; overflow-x: auto;">
+    <table class="fancy-table">
+        <thead>
+            <tr>
+                {% for header in rows[0] %}
+                <th>{{ header }}</th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows[1:] %}
+            <tr>
+                {% for cell in row %}
+                <td>{{ cell }}</td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <p style="font-size: 0.8rem; color: #94a3b8; margin-top: 0.5rem;">Showing top 50 records...</p>
+</div>
