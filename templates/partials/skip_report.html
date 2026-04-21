@@ -1,0 +1,31 @@
+<div class="data-preview" style="margin-top: 15px; border-top: 1px solid #ddd; padding-top: 10px;">
+    <h4>Skipped Records (Missing NUBAN)</h4>
+    <p class="text-danger">These rows were skipped because the mapped NUBAN field was empty or could not be found.</p>
+    <div style="overflow-x: auto; max-height: 400px;">
+        <table class="table" style="width: 100%; border-collapse: collapse; font-size: 14px;">
+            <thead>
+                <tr>
+                    <th style="padding: 8px; border-bottom: 2px solid #ddd; text-align: left; background-color: #f9f9f9; position: sticky; top: 0;">Row #</th>
+                    {% for th in targets %}
+                    <th style="padding: 8px; border-bottom: 2px solid #ddd; text-align: left; background-color: #f9f9f9; position: sticky; top: 0;">{{ th }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for record in file.skipped_records %}
+                <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #ddd; font-weight: bold; color: #666;">{{ record.source_row }}</td>
+                    {% for val in record['values'] %}
+                    <td style="padding: 8px; border-bottom: 1px solid #ddd;">{{ val }}</td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+                {% if not file.skipped_records %}
+                <tr>
+                    <td colspan="{{ targets|length + 1 }}" style="padding: 8px; text-align: center; color: #666;">No skipped records to display.</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>

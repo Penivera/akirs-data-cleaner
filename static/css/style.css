@@ -115,6 +115,16 @@ header p {
     display: none;
 }
 
+.upload-pick-btn {
+    margin-top: 1rem;
+    display: inline-block;
+}
+
+.upload-submit-btn {
+    margin-top: 0.75rem;
+    display: inline-block;
+}
+
 /* Base Glassmatic Panel */
 .glass-panel {
     background: var(--glass-bg);

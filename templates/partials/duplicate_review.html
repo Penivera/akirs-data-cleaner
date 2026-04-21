@@ -1,0 +1,47 @@
+<form class="mapping-form glass-panel" hx-post="/api/duplicates/{{ file.id }}" hx-target="#file-{{ file.id }}"
+    hx-swap="outerHTML">
+    <h4>Duplicate NUBAN Review</h4>
+    <p style="font-size: 0.9rem; color: #94a3b8; margin-bottom: 0.75rem;">
+        Duplicates were found for {{ file.duplicate_groups | length }} NUBAN group(s). Review source row numbers and
+        choose how to continue.
+    </p>
+
+    {% for group in file.duplicate_groups %}
+    <div class="glass-panel" style="margin-bottom: 0.75rem; padding: 0.75rem;">
+        <div style="font-weight: 600; margin-bottom: 0.5rem;">NUBAN: {{ group['nuban'] }} ({{ group['records'] | length
+            }}
+            rows)</div>
+        <div style="overflow-x: auto;">
+            <table class="fancy-table">
+                <thead>
+                    <tr>
+                        <th>Accept</th>
+                        <th>Source Row</th>
+                        {% for header in targets %}
+                        <th>{{ header }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for rec in group['records'] %}
+                    <tr>
+                        <td>
+                            <input type="checkbox" name="accepted_records" value="{{ rec['id'] }}">
+                        </td>
+                        <td>{{ rec['source_row'] }}</td>
+                        {% for cell in rec['values'] %}
+                        <td>{{ cell }}</td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endfor %}
+
+    <div class="form-actions" style="justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+        <button type="submit" name="decision" value="merge" class="btn btn-primary">Merge Duplicates</button>
+        <button type="submit" name="decision" value="pick" class="btn btn-warning">Accept Checked Rows</button>
+    </div>
+</form>

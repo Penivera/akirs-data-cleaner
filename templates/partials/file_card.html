@@ -6,20 +6,35 @@
         </div>
         <div class="file-actions">
             {% if 'Processed' in file.status %}
-                <button class="btn btn-success" hx-get="/api/view/{{ file.id }}" hx-target="#data-view-{{ file.id }}">View Data</button>
-                <a href="/api/download/{{ file.original_filename | replace('.xlsx', '.csv') }}" class="btn btn-primary" style="text-decoration: none;">Download</a>
-            {% elif file.status == 'Ready' %}
-                <button class="btn btn-warning" hx-post="/api/components/mapping/{{ file.id }}" hx-target="#mapping-area-{{ file.id }}">Options</button>
-                <button class="btn btn-primary" hx-post="/api/process/{{ file.id }}" hx-target="#file-{{ file.id }}" hx-swap="outerHTML">Process</button>
-            {% elif 'Needs Mapping' in file.status or 'Needs Sheet' in file.status %}
-                <button class="btn btn-warning" hx-post="/api/components/mapping/{{ file.id }}" hx-target="#mapping-area-{{ file.id }}">Configure</button>
+            <button class="btn btn-success" hx-get="/api/view/{{ file.id }}" hx-target="#data-view-{{ file.id }}">View
+                Data</button>
+            {% if file.skipped_records %}
+            <button class="btn btn-warning" hx-get="/api/view-skipped/{{ file.id }}" hx-target="#data-view-{{ file.id }}">View {{ file.skipped_records | length }} Skipped</button>
             {% endif %}
-            <button class="btn btn-danger" hx-delete="/api/delete/{{ file.id }}" hx-target="#file-{{ file.id }}" hx-swap="outerHTML">X</button>
+            <a href="/api/download/{{ file.original_filename | replace('.xlsx', '.csv') }}" class="btn btn-primary"
+                style="text-decoration: none;">Download</a>
+            {% elif file.status == 'Ready' %}
+            <button class="btn btn-warning" hx-post="/api/components/mapping/{{ file.id }}"
+                hx-target="#mapping-area-{{ file.id }}">Options</button>
+            <button class="btn btn-primary" hx-post="/api/process/{{ file.id }}" hx-target="#file-{{ file.id }}"
+                hx-swap="outerHTML">Process</button>
+            {% elif 'Needs Duplicate Review' in file.status %}
+            <button class="btn btn-warning" hx-post="/api/components/mapping/{{ file.id }}"
+                hx-target="#mapping-area-{{ file.id }}">Options</button>
+            {% elif 'Needs Mapping' in file.status or 'Needs Sheet' in file.status %}
+            <button class="btn btn-warning" hx-post="/api/components/mapping/{{ file.id }}"
+                hx-target="#mapping-area-{{ file.id }}">Configure</button>
+            {% endif %}
+            <button class="btn btn-danger" hx-delete="/api/delete/{{ file.id }}" hx-target="#file-{{ file.id }}"
+                hx-swap="delete">X</button>
         </div>
     </div>
-    
+
     <div id="mapping-area-{{ file.id }}" class="mapping-area">
         {# Dynamic mapping form will be injected here via HTMX #}
+        {% if file.duplicate_groups and 'Needs Duplicate Review' in file.status %}
+        {% include 'partials/duplicate_review.html' %}
+        {% endif %}
     </div>
     <div id="data-view-{{ file.id }}" class="data-view-area"></div>
 </div>
