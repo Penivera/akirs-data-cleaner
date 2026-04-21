@@ -1,0 +1,24 @@
+<div class="file-card" id="analyse-file-{{ file.id }}">
+    <div class="file-header">
+        <div class="file-info">
+            <span class="file-name">{{ file.original_filename }}</span>
+            <span class="file-status status-{{ file.status | lower | replace(' ', '-') }}">{{ file.status }}</span>
+        </div>
+        <div class="file-actions">
+            {% if file.status == 'Generated' %}
+            <a href="/api/analyse/download/{{ file.id }}" download class="btn btn-success" style="text-decoration: none;">Download Report</a>
+            <button class="btn btn-warning" hx-post="/api/analyse/components/config-form/{{ file.id }}" hx-target="#analyse-config-area-{{ file.id }}">Re-configure</button>
+            {% elif file.status == 'Configured' %}
+            <button class="btn btn-warning" hx-post="/api/analyse/components/config-form/{{ file.id }}" hx-target="#analyse-config-area-{{ file.id }}">Edit Config</button>
+            <button class="btn btn-primary" hx-post="/api/analyse/generate/{{ file.id }}" hx-target="#analyse-file-{{ file.id }}" hx-swap="outerHTML">Generate Output</button>
+            {% elif 'Ready' in file.status or 'Needs Sheet' in file.status %}
+            <button class="btn btn-primary" hx-post="/api/analyse/components/config-form/{{ file.id }}" hx-target="#analyse-config-area-{{ file.id }}">Configure Analysis</button>
+            {% endif %}
+            <button class="btn btn-danger" hx-delete="/api/analyse/delete/{{ file.id }}" hx-target="#analyse-file-{{ file.id }}" hx-swap="delete">X</button>
+        </div>
+    </div>
+
+    <div id="analyse-config-area-{{ file.id }}" class="mapping-area">
+        {# Configuration form will load here via HTMX #}
+    </div>
+</div>

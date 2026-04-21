@@ -1,0 +1,85 @@
+<form hx-post="/api/analyse/config/{{ file.id }}" hx-target="#analyse-file-{{ file.id }}" hx-swap="outerHTML" class="mapping-grid glass-panel" style="margin-top: 15px;">
+    {% if file.status == 'Needs Sheet' %}
+        <div class="mapping-row" style="grid-column: 1 / -1;">
+            <label>Multiple sheets detected. Select one to analyze:</label>
+            <select name="selected_sheet" class="fancy-select" required style="max-width: 300px;">
+                <option value="">-- Select Sheet --</option>
+                {% for sname in file.sheet_names %}
+                <option value="{{ sname }}">{{ sname }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    {% else %}
+        {% if preview_rows %}
+        <div style="grid-column: 1 / -1; margin-bottom: 20px;">
+            <label style="color: #cbd5e1; font-size: 0.85rem; margin-bottom: 8px; display: block;">Data Preview (First {{ preview_rows|length }} rows)</label>
+            <div style="overflow-x: auto; border: 1px solid var(--glass-border); border-radius: 8px;">
+                <table class="fancy-table" style="margin-bottom: 0;">
+                    <thead>
+                        <tr>
+                            {% for h in file.headers %}
+                            <th>{{ h }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in preview_rows %}
+                        <tr>
+                            {% for i in range(file.headers|length) %}
+                            <td>{{ row[i] if i < row|length and row[i] is not none else '' }}</td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="mapping-row">
+            <label>Report Title</label>
+            <input type="text" name="title" class="fancy-select" value="{{ file.config.get('title', 'DATA ANALYSIS REPORT') }}" required>
+        </div>
+        
+        <div class="mapping-row">
+            <label>Identity Column (Group By)</label>
+            <select name="identity_col" class="fancy-select" required>
+                <option value="">-- Select Primary Identity --</option>
+                {% for h in file.headers %}
+                <option value="{{ h }}" {% if file.config.get('identity_col') == h %}selected{% endif %}>{{ h }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="mapping-row">
+            <label>Numeric Metric Column (Sum)</label>
+            <select name="metric_col" class="fancy-select" required>
+                <option value="">-- Select Value to Calculate --</option>
+                {% for h in file.headers %}
+                <option value="{{ h }}" {% if file.config.get('metric_col') == h %}selected{% endif %}>{{ h }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <div class="mapping-row">
+            <label>Sort Limit (Top X Records)</label>
+            <input type="number" name="limit" class="fancy-select" value="{{ file.config.get('limit', 50) }}" required>
+        </div>
+        
+        <div class="mapping-row" style="grid-column: 1 / -1;">
+            <label>Additional Metadata Columns to Keep (uncheck to drop)</label>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 10px;">
+                {% for h in file.headers %}
+                <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; font-size: 13px; color: #f8fafc;">
+                    <input type="checkbox" name="keep_columns" value="{{ h }}" checked style="accent-color: var(--primary);">
+                    {{ h }}
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+    {% endif %}
+
+    <div class="form-actions" style="grid-column: 1 / -1; margin-top: 10px;">
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Save Configuration</button>
+    </div>
+</form>

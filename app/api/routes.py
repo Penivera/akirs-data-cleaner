@@ -5,7 +5,7 @@ import hashlib
 import os
 import time
 from io import BytesIO
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 from app.core.state import file_db, FileState, TARGET_FIELDS
 from app.services.cleaner import (
@@ -35,76 +35,80 @@ async def read_index(request: Request):
 
 
 @router.post("/api/upload", response_class=HTMLResponse)
-async def upload_file(request: Request, file: UploadFile = File(...)):
+async def upload_file(request: Request, file: List[UploadFile] = File(...)):
     os.makedirs("uploads", exist_ok=True)
-    file_bytes = await file.read()
-    file_hash = hashlib.sha256(file_bytes).hexdigest()
-    file_size = len(file_bytes)
+    
+    files_to_process = file if isinstance(file, list) else [file]
+    processed_states = []
     now = time.time()
+    
+    for f in files_to_process:
+        file_bytes = await f.read()
+        file_hash = hashlib.sha256(file_bytes).hexdigest()
+        file_size = len(file_bytes)
+        
+        is_duplicate = False
+        for existing_state in file_db.values():
+            if (
+                existing_state.original_filename == f.filename
+                and getattr(existing_state, "upload_hash", "") == file_hash
+                and getattr(existing_state, "upload_size", 0) == file_size
+                and (now - getattr(existing_state, "uploaded_at", 0.0))
+                <= DUPLICATE_UPLOAD_WINDOW_SECONDS
+            ):
+                processed_states.append(existing_state)
+                is_duplicate = True
+                break
+                
+        if is_duplicate:
+            continue
 
-    for existing_state in file_db.values():
-        if (
-            existing_state.original_filename == file.filename
-            and getattr(existing_state, "upload_hash", "") == file_hash
-            and getattr(existing_state, "upload_size", 0) == file_size
-            and (now - getattr(existing_state, "uploaded_at", 0.0))
-            <= DUPLICATE_UPLOAD_WINDOW_SECONDS
-        ):
-            return templates.TemplateResponse(
-                request=request,
-                name="partials/file_card.html",
-                context={
-                    "request": request,
-                    "file": existing_state,
-                    "targets": TARGET_FIELDS,
-                },
-            )
+        temp_path = os.path.join("uploads", f.filename)
 
-    temp_path = os.path.join("uploads", file.filename)
+        with open(temp_path, "wb") as file_out:
+            file_out.write(file_bytes)
 
-    with open(temp_path, "wb") as f:
-        f.write(file_bytes)
+        state = FileState()
+        state.original_filename = f.filename
+        state.saved_path = temp_path
+        state.upload_hash = file_hash
+        state.upload_size = file_size
+        state.uploaded_at = now
 
-    state = FileState()
-    state.original_filename = file.filename
-    state.saved_path = temp_path
-    state.upload_hash = file_hash
-    state.upload_size = file_size
-    state.uploaded_at = now
+        # Analyze headers
+        try:
+            _, sheet_names = load_tabular_rows(temp_path, "")
+            state.sheet_names = sheet_names
 
-    # Analyze headers
-    try:
-        _, sheet_names = load_tabular_rows(temp_path, "")
-        state.sheet_names = sheet_names
+            if len(sheet_names) > 1:
+                state.status = "Needs Sheet"
+            else:
+                if sheet_names:
+                    state.selected_sheet = sheet_names[0]
+                rows, _ = load_tabular_rows(temp_path, state.selected_sheet)
+                idx, headers = find_header_row_and_headers_from_rows(rows)
+                state.headers = [h for h in headers if h]
+                state.header_row_idx = idx
 
-        if len(sheet_names) > 1:
-            state.status = "Needs Sheet"
-        else:
-            if sheet_names:
-                state.selected_sheet = sheet_names[0]
-            rows, _ = load_tabular_rows(temp_path, state.selected_sheet)
-            idx, headers = find_header_row_and_headers_from_rows(rows)
-            state.headers = [h for h in headers if h]
-            state.header_row_idx = idx
+                mapped_fields, status = auto_map_headers(state.headers)
+                state.mapped_fields = mapped_fields
+                state.status = status
+                state.available_branches = detect_distinct_branches(
+                    state.headers,
+                    rows,
+                    idx,
+                )
 
-            mapped_fields, status = auto_map_headers(state.headers)
-            state.mapped_fields = mapped_fields
-            state.status = status
-            state.available_branches = detect_distinct_branches(
-                state.headers,
-                rows,
-                idx,
-            )
+        except Exception as e:
+            state.status = f"Error: {str(e)}"
 
-    except Exception as e:
-        state.status = f"Error: {str(e)}"
-
-    file_db[state.id] = state
+        file_db[state.id] = state
+        processed_states.append(state)
 
     return templates.TemplateResponse(
         request=request,
-        name="partials/file_card.html",
-        context={"request": request, "file": state, "targets": TARGET_FIELDS},
+        name="partials/file_cards.html",
+        context={"request": request, "files": processed_states, "targets": TARGET_FIELDS},
     )
 
 

@@ -7,7 +7,7 @@ class FileState:
     original_filename: str
     saved_path: str
     headers: List[str]
-    status: str  # "Ready", "Needs Mapping", "Needs Sheet"
+    status: str  # NOTE: "Ready", "Needs Mapping", "Needs Sheet"
     sheet_names: List[str]
     selected_sheet: str
     available_branches: List[str]
@@ -58,3 +58,38 @@ SYNONYMS = {
     "ADDRESS": ["ADDRESS", "RESIDENTIAL ADDRESS", "HOME ADDRESS"],
     "DATE": ["DATE", "ACCT_OPN_DATE", "ACCOUNT OPEN DATE", "OPEN DATE", "DATE OPENED"],
 }
+
+class AnalysisState:
+    id: str
+    original_filename: str
+    saved_path: str
+    headers: List[str]
+    sheet_names: List[str]
+    selected_sheet: str
+    status: str
+    config: Dict[str, Any]
+    report_path: str
+    upload_hash: str
+    upload_size: int
+    uploaded_at: float
+
+    def __init__(self):
+        self.id = str(uuid.uuid4())
+        self.headers = []
+        self.sheet_names = []
+        self.selected_sheet = ""
+        self.status = "New"
+        # store configuration
+        self.config = {
+            "identity_col": "",
+            "metric_col": "",
+            "limit": 50,
+            "title": "DATA ANALYSIS REPORT",
+            "keep_columns": []
+        }
+        self.report_path = ""
+        self.upload_hash = ""
+        self.upload_size = 0
+        self.uploaded_at = 0.0
+
+analysis_db: Dict[str, AnalysisState] = {}

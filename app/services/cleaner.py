@@ -176,8 +176,10 @@ def extract_records(
         if source_field == "__NA__":
             return ""
         if source_field and source_field in header_map:
-            val = row[header_map[source_field]]
-            return str(val).strip() if val is not None else ""
+            h_idx = header_map[source_field]
+            if h_idx < len(row):
+                val = row[h_idx]
+                return str(val).strip() if val is not None else ""
         return ""
 
     extracted_records: List[Dict[str, Any]] = []
@@ -210,6 +212,8 @@ def extract_records(
 
                 for h_name in candidate_headers:
                     h_idx = header_map[h_name]
+                    if h_idx >= len(row):
+                        continue
                     val_str = str(row[h_idx]).strip() if row[h_idx] is not None else ""
 
                     alpha_count = sum(1 for c in val_str if c.isalpha())
@@ -225,7 +229,7 @@ def extract_records(
                         best_header = h_name
 
                 b_idx = header_map[best_header]
-                branch_val = str(row[b_idx]).strip() if row[b_idx] else ""
+                branch_val = str(row[b_idx]).strip() if b_idx < len(row) and row[b_idx] else ""
 
                 if not any(
                     sb.upper() in branch_val.upper() for sb in selected_branches
@@ -236,6 +240,20 @@ def extract_records(
         for target in TARGET_FIELDS:
             source_field = mapped_fields.get(target, "")
             values.append(get_val(row, source_field) or "N/A")
+
+        # Validate TIN (mostly at least 5 alphanumeric characters with some numbers)
+        if values[0] != "N/A":
+            tin_str = values[0]
+            tin_digits = sum(1 for c in tin_str if c.isdigit())
+            if len(tin_str) < 5 or tin_digits < 3:
+                values[0] = "N/A"
+
+        # Validate NUBAN (should be around 10 digits, minimum 8 characters to not be gibberish)
+        if values[2] != "N/A":
+            nuban_str = values[2]
+            nuban_digits = sum(1 for c in nuban_str if c.isdigit())
+            if len(nuban_str) < 8 or nuban_digits < 7:
+                values[2] = "N/A"
 
         # Skip rows with no meaningful identity data
         if values[2] == "N/A" and values[1] == "N/A":
