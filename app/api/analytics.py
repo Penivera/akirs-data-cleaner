@@ -111,6 +111,11 @@ async def analyse_config(request: Request, file_id: str):
         # Save actual configuration
         state.config["identity_col"] = form_data.get("identity_col", "")
         state.config["metric_col"] = form_data.get("metric_col", "")
+        state.config["currency_col"] = form_data.get("currency_col", "")
+        state.config["flow_type_col"] = form_data.get("flow_type_col", "")
+        state.config["inflow_indicator"] = form_data.get("inflow_indicator", "INFLOW")
+        state.config["outflow_indicator"] = form_data.get("outflow_indicator", "OUTFLOW")
+        state.config["flow_filter"] = form_data.get("flow_filter", "All")
         state.config["limit"] = int(form_data.get("limit", 50))
         state.config["title"] = form_data.get("title", "DATA ANALYSIS REPORT")
         state.config["keep_columns"] = form_data.getlist("keep_columns")
@@ -169,15 +174,14 @@ async def delete_analyse_file(file_id: str):
         del analysis_db[file_id]
     return Response(status_code=204)
 
-@router.get("/api/analyse/download/{file_id}", response_class=FileResponse)
-async def download_analysis(file_id: str):
-    state = analysis_db.get(file_id)
-    if state and state.report_path and os.path.exists(state.report_path):
-        filename = os.path.basename(state.report_path)
+@router.get("/api/analyse/download/{filename}")
+async def download_analysis(filename: str):
+    file_path = os.path.join("reports", filename)
+    if os.path.exists(file_path):
         return FileResponse(
-            path=state.report_path, 
+            path=file_path, 
             filename=filename, 
             media_type="text/markdown",
-            headers={"Content-Disposition": f"attachment; filename=\"{filename}\""}
+            content_disposition_type="attachment"
         )
-    return HTMLResponse("Report not found", status_code=404)
+    return HTMLResponse(f"File not found on disk at {file_path}", status_code=404)

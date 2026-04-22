@@ -1,5 +1,5 @@
 import uuid
-from typing import Dict, Any, List
+from typing import Dict, Any, List,Optional
 
 
 class FileState:
@@ -68,7 +68,9 @@ class AnalysisState:
     selected_sheet: str
     status: str
     config: Dict[str, Any]
-    report_path: str
+    report_path: Optional[str] = None
+    report_filename: Optional[str] = None
+    schema_version: str = "1.0"
     upload_hash: str
     upload_size: int
     uploaded_at: float
@@ -83,6 +85,11 @@ class AnalysisState:
         self.config = {
             "identity_col": "",
             "metric_col": "",
+            "currency_col": "",
+            "flow_type_col": "",
+            "inflow_indicator": "INFLOW",
+            "outflow_indicator": "OUTFLOW",
+            "flow_filter": "All",
             "limit": 50,
             "title": "DATA ANALYSIS REPORT",
             "keep_columns": []

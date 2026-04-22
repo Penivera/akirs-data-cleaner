@@ -118,10 +118,19 @@ async def edit_mapping(request: Request, file_id: str):
     if not state:
         return "File not found"
 
+    preview_rows = []
+    if state.status != "Needs Sheet" and getattr(state, "header_row_idx", None) is not None:
+        try:
+            from app.services.cleaner import load_tabular_rows
+            rows, _ = load_tabular_rows(state.saved_path, state.selected_sheet)
+            preview_rows = rows[state.header_row_idx + 1 : state.header_row_idx + 4]
+        except Exception:
+            pass
+
     return templates.TemplateResponse(
         request=request,
         name="partials/mapping_form.html",
-        context={"request": request, "file": state, "targets": TARGET_FIELDS},
+        context={"request": request, "file": state, "targets": TARGET_FIELDS, "preview_rows": preview_rows},
     )
 
 

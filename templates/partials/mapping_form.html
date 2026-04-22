@@ -14,6 +14,32 @@
             <small style="color: #64748b; font-size: 0.75rem;">This workbook contains multiple sheets. Please map the one reflecting your state.</small>
         </div>
         {% else %}
+            {% if preview_rows %}
+            <div style="grid-column: 1 / -1; margin-bottom: 20px;">
+                <label style="color: #cbd5e1; font-size: 0.85rem; margin-bottom: 8px; display: block;">Data Preview (First {{ preview_rows|length }} rows)</label>
+                <div style="overflow-x: auto; border: 1px solid var(--glass-border); border-radius: 8px;">
+                    <table class="fancy-table" style="margin-bottom: 0;">
+                        <thead>
+                            <tr>
+                                {% for h in file.headers %}
+                                <th>{{ h }}</th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in preview_rows %}
+                            <tr>
+                                {% for i in range(file.headers|length) %}
+                                <td>{{ row[i] if i < row|length and row[i] is not none else '' }}</td>
+                                {% endfor %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+            
             {% if file.available_branches %}
             <div class="mapping-row" style="grid-column: 1 / -1;">
                 <label>TARGET BRANCHES (Select multiple)</label>

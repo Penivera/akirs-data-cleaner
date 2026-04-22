@@ -6,7 +6,7 @@
         </div>
         <div class="file-actions">
             {% if file.status == 'Generated' %}
-            <a href="/api/analyse/download/{{ file.id }}" download class="btn btn-success" style="text-decoration: none;">Download Report</a>
+            <a href="/api/analyse/download/{{ file.report_filename }}" class="btn btn-success" style="text-decoration: none;">Download Report</a>
             <button class="btn btn-warning" hx-post="/api/analyse/components/config-form/{{ file.id }}" hx-target="#analyse-config-area-{{ file.id }}">Re-configure</button>
             {% elif file.status == 'Configured' %}
             <button class="btn btn-warning" hx-post="/api/analyse/components/config-form/{{ file.id }}" hx-target="#analyse-config-area-{{ file.id }}">Edit Config</button>

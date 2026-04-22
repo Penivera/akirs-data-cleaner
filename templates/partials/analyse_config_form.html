@@ -37,14 +37,14 @@
         {% endif %}
 
         <div class="mapping-row">
-            <label>Report Title</label>
+            <label>Report Title <br><small style="color: #64748b; font-size: 0.75rem;">(The header text printed at the top of your final document)</small></label>
             <input type="text" name="title" class="fancy-select" value="{{ file.config.get('title', 'DATA ANALYSIS REPORT') }}" required>
         </div>
         
         <div class="mapping-row">
-            <label>Identity Column (Group By)</label>
+            <label>Who are we ranking? <br><small style="color: #64748b; font-size: 0.75rem;">(e.g., Account Name, Branch, or Taxpayer ID)</small></label>
             <select name="identity_col" class="fancy-select" required>
-                <option value="">-- Select Primary Identity --</option>
+                <option value="">-- Select Identity Column --</option>
                 {% for h in file.headers %}
                 <option value="{{ h }}" {% if file.config.get('identity_col') == h %}selected{% endif %}>{{ h }}</option>
                 {% endfor %}
@@ -52,9 +52,9 @@
         </div>
 
         <div class="mapping-row">
-            <label>Numeric Metric Column (Sum)</label>
+            <label>What are we measuring? <br><small style="color: #64748b; font-size: 0.75rem;">(e.g., Amount, Balance, Debit size)</small></label>
             <select name="metric_col" class="fancy-select" required>
-                <option value="">-- Select Value to Calculate --</option>
+                <option value="">-- Select Numeric Column to Sum --</option>
                 {% for h in file.headers %}
                 <option value="{{ h }}" {% if file.config.get('metric_col') == h %}selected{% endif %}>{{ h }}</option>
                 {% endfor %}
@@ -62,7 +62,47 @@
         </div>
         
         <div class="mapping-row">
-            <label>Sort Limit (Top X Records)</label>
+            <label>Currency Column <br><small style="color: #64748b; font-size: 0.75rem;">(Optional: separate USD metrics from NGN metrics)</small></label>
+            <select name="currency_col" class="fancy-select">
+                <option value="">-- None (Mix all currencies blindly) --</option>
+                {% for h in file.headers %}
+                <option value="{{ h }}" {% if file.config.get('currency_col') == h %}selected{% endif %}>{{ h }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="mapping-row">
+            <label>Transaction Type Column <br><small style="color: #64748b; font-size: 0.75rem;">(Optional: column indicating Inflow vs Outflow)</small></label>
+            <select name="flow_type_col" class="fancy-select">
+                <option value="">-- None (Assume positive is inflow, negative is outflow) --</option>
+                {% for h in file.headers %}
+                <option value="{{ h }}" {% if file.config.get('flow_type_col') == h %}selected{% endif %}>{{ h }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <div class="mapping-row" style="display: flex; gap: 10px;">
+            <div style="flex: 1;">
+                <label>Inflow Indicator</label>
+                <input type="text" name="inflow_indicator" class="fancy-select" value="{{ file.config.get('inflow_indicator', 'INFLOW') }}" placeholder="e.g. CR">
+            </div>
+            <div style="flex: 1;">
+                <label>Outflow Indicator</label>
+                <input type="text" name="outflow_indicator" class="fancy-select" value="{{ file.config.get('outflow_indicator', 'OUTFLOW') }}" placeholder="e.g. DR">
+            </div>
+        </div>
+
+        <div class="mapping-row">
+            <label>Report Filter <br><small style="color: #64748b; font-size: 0.75rem;">(Generate report for all, or limit to specific flows)</small></label>
+            <select name="flow_filter" class="fancy-select">
+                <option value="All" {% if file.config.get('flow_filter') == 'All' %}selected{% endif %}>All Transactions</option>
+                <option value="Inflows Only" {% if file.config.get('flow_filter') == 'Inflows Only' %}selected{% endif %}>Inflows Only</option>
+                <option value="Outflows Only" {% if file.config.get('flow_filter') == 'Outflows Only' %}selected{% endif %}>Outflows Only</option>
+            </select>
+        </div>
+        
+        <div class="mapping-row" style="grid-column: 1 / -1; max-width: 300px;">
+            <label>Sort Limit (Top X Records) <br><small style="color: #64748b; font-size: 0.75rem;">(e.g., 50 means Top 50 Spenders)</small></label>
             <input type="number" name="limit" class="fancy-select" value="{{ file.config.get('limit', 50) }}" required>
         </div>
         
