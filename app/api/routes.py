@@ -279,6 +279,40 @@ async def resolve_duplicates(request: Request, file_id: str):
     )
 
 
+@router.get("/api/view/process", response_class=HTMLResponse)
+async def get_process_view(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/process_view.html",
+        context={"request": request, "files": file_db.values()},
+    )
+
+
+@router.get("/api/view/cleaned", response_class=HTMLResponse)
+async def get_cleaned_view(request: Request):
+    import math
+
+    cleaned_dir = "cleaned"
+    os.makedirs(cleaned_dir, exist_ok=True)
+    files_info = []
+
+    for fname in os.listdir(cleaned_dir):
+        if fname.endswith(".csv") or fname.endswith(".xlsx"):
+            fpath = os.path.join(cleaned_dir, fname)
+            size_bytes = os.path.getsize(fpath)
+            size_mb = round(size_bytes / (1024 * 1024), 2) if size_bytes > 0 else 0
+            files_info.append({"name": fname, "size": size_mb})
+
+    # Sort files by name or modified time if needed
+    files_info.sort(key=lambda x: x["name"])
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/cleaned_view.html",
+        context={"request": request, "cleaned_files": files_info},
+    )
+
+
 @router.get("/api/view/{file_id}", response_class=HTMLResponse)
 async def view_data(request: Request, file_id: str):
     import csv
@@ -315,40 +349,6 @@ async def view_skipped(request: Request, file_id: str):
         request=request,
         name="partials/skip_report.html",
         context={"request": request, "file": state, "targets": TARGET_FIELDS},
-    )
-
-
-@router.get("/api/view/process", response_class=HTMLResponse)
-async def get_process_view(request: Request):
-    return templates.TemplateResponse(
-        request=request,
-        name="partials/process_view.html",
-        context={"request": request, "files": file_db.values()},
-    )
-
-
-@router.get("/api/view/cleaned", response_class=HTMLResponse)
-async def get_cleaned_view(request: Request):
-    import math
-
-    cleaned_dir = "cleaned"
-    os.makedirs(cleaned_dir, exist_ok=True)
-    files_info = []
-
-    for fname in os.listdir(cleaned_dir):
-        if fname.endswith(".csv") or fname.endswith(".xlsx"):
-            fpath = os.path.join(cleaned_dir, fname)
-            size_bytes = os.path.getsize(fpath)
-            size_mb = round(size_bytes / (1024 * 1024), 2) if size_bytes > 0 else 0
-            files_info.append({"name": fname, "size": size_mb})
-
-    # Sort files by name or modified time if needed
-    files_info.sort(key=lambda x: x["name"])
-
-    return templates.TemplateResponse(
-        request=request,
-        name="partials/cleaned_view.html",
-        context={"request": request, "cleaned_files": files_info},
     )
 
 
