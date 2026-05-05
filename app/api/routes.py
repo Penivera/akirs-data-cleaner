@@ -83,9 +83,8 @@ async def upload_file(request: Request, file: List[UploadFile] = File(...)):
             if len(sheet_names) > 1:
                 state.status = "Needs Sheet"
             else:
-                if sheet_names:
-                    state.selected_sheet = sheet_names[0]
-                rows, _ = load_tabular_rows(temp_path, state.selected_sheet)
+                state.selected_sheets = [sheet_names[0]] if sheet_names else [""]
+                rows, _ = load_tabular_rows(temp_path, state.selected_sheets[0])
                 idx, headers = find_header_row_and_headers_from_rows(rows)
                 state.headers = [h for h in headers if h]
                 state.header_row_idx = idx
@@ -122,7 +121,7 @@ async def edit_mapping(request: Request, file_id: str):
     if state.status != "Needs Sheet" and getattr(state, "header_row_idx", None) is not None:
         try:
             from app.services.cleaner import load_tabular_rows
-            rows, _ = load_tabular_rows(state.saved_path, state.selected_sheet)
+            rows, _ = load_tabular_rows(state.saved_path, state.selected_sheets[0] if state.selected_sheets else "")
             preview_rows = rows[state.header_row_idx + 1 : state.header_row_idx + 4]
         except Exception:
             pass
@@ -143,14 +142,11 @@ async def save_mapping(request: Request, file_id: str):
     form_data = await request.form()
 
     # Handle Sheet Selection
-    if (
-        form_data.get("selected_sheet")
-        and form_data.get("selected_sheet") in state.sheet_names
-    ):
-        state.selected_sheet = form_data.get("selected_sheet")
-        # Proceed with parsing this sheet
+    if form_data.getlist("selected_sheets"):
+        state.selected_sheets = form_data.getlist("selected_sheets")
+        # Proceed with parsing the first selected sheet for header detection
         try:
-            rows, _ = load_tabular_rows(state.saved_path, state.selected_sheet)
+            rows, _ = load_tabular_rows(state.saved_path, state.selected_sheets[0])
             idx, headers = find_header_row_and_headers_from_rows(rows)
             state.headers = [h for h in headers if h]
             state.header_row_idx = idx
@@ -204,8 +200,8 @@ async def process_file(request: Request, file_id: str):
         records, skipped_records = extract_records(
             state.saved_path,
             state.mapped_fields,
-            getattr(state, "header_row_idx", 3),
-            state.selected_sheet,
+            state.header_row_idx,
+            state.selected_sheets,
             state.selected_branches,
         )
         state.skipped_records = skipped_records

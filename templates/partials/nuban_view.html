@@ -1,0 +1,23 @@
+<section class="upload-zone" id="nuban-upload-zone">
+    <form id="nuban-upload-form" hx-post="/api/nuban/upload" hx-target="#nuban-file-list" hx-swap="afterbegin"
+        hx-trigger="change from:#nubanpfileElem" enctype="multipart/form-data">
+        <div class="drop-area">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            </svg>
+            <p>Upload Excel/CSV to resolve account names from NUBANs</p>
+            <label for="nubanpfileElem" class="btn btn-primary upload-pick-btn">Choose File</label>
+            <input type="file" id="nubanpfileElem" name="file" multiple accept=".xlsx, .xls, .csv">
+        </div>
+    </form>
+</section>
+
+<section class="file-list-container">
+    <h2>NUBAN Resolution Workspace</h2>
+    <div id="nuban-file-list" class="file-list">
+        {% for file in files %}
+        {% include 'partials/nuban_file_card.html' %}
+        {% endfor %}
+    </div>
+</section>

@@ -72,8 +72,8 @@ async def analyse_upload(request: Request, file: List[UploadFile] = File(...)):
                 state.status = "Needs Sheet"
             else:
                 if sheet_names:
-                    state.selected_sheet = sheet_names[0]
-                rows, _ = load_tabular_rows(temp_path, state.selected_sheet)
+                    state.selected_sheets = [sheet_names[0]]
+                rows, _ = load_tabular_rows(temp_path, state.selected_sheets[0] if state.selected_sheets else "")
                 idx, headers = find_header_row_and_headers_from_rows(rows)
                 state.headers = [h for h in headers if h]
                 state.header_row_idx = idx
@@ -100,9 +100,9 @@ async def analyse_config(request: Request, file_id: str):
     form_data = await request.form()
     
     # Check if this is a sheet selection submit
-    if form_data.get("selected_sheet") and form_data.get("selected_sheet") in state.sheet_names:
-        state.selected_sheet = form_data.get("selected_sheet")
-        rows, _ = load_tabular_rows(state.saved_path, state.selected_sheet)
+    if form_data.getlist("selected_sheets"):
+        state.selected_sheets = form_data.getlist("selected_sheets")
+        rows, _ = load_tabular_rows(state.saved_path, state.selected_sheets[0])
         idx, headers = find_header_row_and_headers_from_rows(rows)
         state.headers = [h for h in headers if h]
         state.header_row_idx = idx
@@ -138,7 +138,7 @@ async def get_config_form(request: Request, file_id: str):
     preview_rows = []
     if state.status != "Needs Sheet" and getattr(state, "header_row_idx", None) is not None:
         try:
-            rows, _ = load_tabular_rows(state.saved_path, state.selected_sheet)
+            rows, _ = load_tabular_rows(state.saved_path, state.selected_sheets[0] if state.selected_sheets else "")
             preview_rows = rows[state.header_row_idx + 1 : state.header_row_idx + 4]
         except Exception:
             pass

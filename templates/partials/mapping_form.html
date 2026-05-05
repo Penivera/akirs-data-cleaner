@@ -4,14 +4,20 @@
         
         {% if 'Needs Sheet' in file.status %}
         <div class="mapping-row" style="grid-column: 1 / -1;">
-            <label>TARGET SHEET</label>
-            <select name="selected_sheet" class="fancy-select" required>
-                <option value="">-- Choose State Sheet --</option>
+            <label>TARGET SHEETS (Select at least one)</label>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 10px; background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px;">
+                <label style="display: flex; align-items: center; gap: 8px; font-weight: bold; color: var(--primary); grid-column: 1 / -1; border-bottom: 1px solid var(--glass-border); padding-bottom: 8px; margin-bottom: 5px;">
+                    <input type="checkbox" onchange="const cbs = this.closest('.mapping-row').querySelectorAll('.sheet-cb'); cbs.forEach(cb => cb.checked = this.checked);" style="accent-color: var(--primary);">
+                    Select All Sheets
+                </label>
                 {% for sheet in file.sheet_names %}
-                <option value="{{ sheet }}" {% if sheet == file.selected_sheet %}selected{% endif %}>{{ sheet }}</option>
+                <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; font-size: 13px; color: #f8fafc;">
+                    <input type="checkbox" name="selected_sheets" value="{{ sheet }}" class="sheet-cb" {% if sheet in file.selected_sheets %}checked{% endif %} style="accent-color: var(--primary);">
+                    {{ sheet }}
+                </label>
                 {% endfor %}
-            </select>
-            <small style="color: #64748b; font-size: 0.75rem;">This workbook contains multiple sheets. Please map the one reflecting your state.</small>
+            </div>
+            <small style="color: #64748b; font-size: 0.75rem;">This workbook contains multiple sheets. You can now select multiple sheets to process them all using the same mapping.</small>
         </div>
         {% else %}
             {% if preview_rows %}

@@ -1,0 +1,24 @@
+<div class="file-card" id="nuban-file-{{ file.id }}">
+    <div class="file-header">
+        <div class="file-info">
+            <span class="file-name">{{ file.original_filename }}</span>
+            <span class="file-status status-{{ file.status.split(' ')[0].lower() }}">{{ file.status }}</span>
+        </div>
+        <div class="file-actions">
+            {% if file.status == 'Resolved' %}
+            <a href="/api/download/{{ file.resolved_filename }}" class="btn btn-success" style="text-decoration: none;">Download Resolved</a>
+            <button class="btn btn-warning" hx-post="/api/nuban/config-form/{{ file.id }}" hx-target="#nuban-config-area-{{ file.id }}">Re-configure</button>
+            {% elif file.status == 'Configured' %}
+            <button class="btn btn-warning" hx-post="/api/nuban/config-form/{{ file.id }}" hx-target="#nuban-config-area-{{ file.id }}">Edit Config</button>
+            <button class="btn btn-primary" hx-post="/api/nuban/resolve/{{ file.id }}" hx-target="#nuban-file-{{ file.id }}" hx-swap="outerHTML">Start Resolution</button>
+            {% elif 'Ready' in file.status or 'Needs Sheet' in file.status %}
+            <button class="btn btn-primary" hx-post="/api/nuban/config-form/{{ file.id }}" hx-target="#nuban-config-area-{{ file.id }}">Configure Resolution</button>
+            {% endif %}
+            <button class="btn btn-danger" hx-delete="/api/nuban/delete/{{ file.id }}" hx-target="#nuban-file-{{ file.id }}" hx-swap="delete">X</button>
+        </div>
+    </div>
+
+    <div id="nuban-config-area-{{ file.id }}" class="mapping-area">
+        {# Configuration form will load here via HTMX #}
+    </div>
+</div>

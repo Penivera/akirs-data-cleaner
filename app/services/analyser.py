@@ -217,13 +217,25 @@ def generate_markdown_report(state, rows: List[Tuple[Any, ...]], header_row_idx:
 def process_analytics(state) -> str:
     from app.services.cleaner import find_header_row_and_headers_from_rows
     
-    rows, _ = load_tabular_rows(state.saved_path, state.selected_sheet)
-    if getattr(state, 'header_row_idx', None) is None:
-         idx, hdrs = find_header_row_and_headers_from_rows(rows)
-         state.header_row_idx = idx
-         state.headers = hdrs
+    all_rows = []
+    header_row_idx = getattr(state, 'header_row_idx', None)
+    
+    for idx, sheet_name in enumerate(state.selected_sheets):
+        rows, _ = load_tabular_rows(state.saved_path, sheet_name)
+        
+        if idx == 0:
+            if header_row_idx is None:
+                 header_idx, hdrs = find_header_row_and_headers_from_rows(rows)
+                 state.header_row_idx = header_idx
+                 state.headers = hdrs
+                 header_row_idx = header_idx
+            all_rows.extend(rows)
+        else:
+            # For subsequent sheets, only add data rows
+            if header_row_idx is not None and len(rows) > header_row_idx + 1:
+                all_rows.extend(rows[header_row_idx + 1:])
          
-    md_content = generate_markdown_report(state, rows, state.header_row_idx)
+    md_content = generate_markdown_report(state, all_rows, state.header_row_idx)
     
     os.makedirs("reports", exist_ok=True)
     out_filename = os.path.basename(state.saved_path)
