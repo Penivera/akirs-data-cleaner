@@ -20,18 +20,20 @@ try {
     git pull
 }
 
-# Ensure venv
-if (-not (Test-Path -Path "venv")) {
-    Write-Output "Creating virtualenv..."
-    python -m venv venv
+# Ensure venv: prefer existing .venv or venv; create .venv if neither exists
+$venvDir = if (Test-Path ".venv") { ".venv" } elseif (Test-Path "venv") { "venv" } else { $null }
+if (-not $venvDir) {
+    Write-Output "No virtualenv found. Creating .venv..."
+    python -m venv .venv
+    $venvDir = ".venv"
 }
 
 # Activate venv for this session
-$activate = Join-Path "venv/Scripts" "Activate.ps1"
+$activate = Join-Path "$venvDir/Scripts" "Activate.ps1"
 if (Test-Path $activate) {
     . $activate
 } else {
-    Write-Output "Unable to find Activate.ps1. Ensure the venv was created and PowerShell execution policy allows running scripts."
+    Write-Output "Unable to find Activate.ps1 in $venvDir. Ensure the venv was created and PowerShell execution policy allows running scripts."
 }
 
 if (Test-Path "requirements.txt") {

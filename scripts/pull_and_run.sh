@@ -17,15 +17,21 @@ if ! git pull --ff-only; then
   git pull
 fi
 
-# Setup venv if missing
-if [ ! -d "venv" ]; then
-  echo "Creating virtualenv..."
-  python3 -m venv venv
+# Setup venv: prefer existing .venv or venv; create .venv if neither exists
+VENV_DIR=""
+if [ -d ".venv" ]; then
+  VENV_DIR=".venv"
+elif [ -d "venv" ]; then
+  VENV_DIR="venv"
+else
+  echo "No virtualenv found. Creating .venv..."
+  python3 -m venv .venv
+  VENV_DIR=".venv"
 fi
 
-# Activate
+# Activate chosen venv
 # shellcheck disable=SC1091
-source venv/bin/activate
+source "$VENV_DIR/bin/activate"
 
 # Install requirements if present
 if [ -f requirements.txt ]; then
