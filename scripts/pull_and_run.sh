@@ -29,14 +29,37 @@ else
   VENV_DIR=".venv"
 fi
 
-# Activate chosen venv
-# shellcheck disable=SC1091
-source "$VENV_DIR/bin/activate"
+# Note: instead of relying on 'pip' from PATH (which may refer to a system-managed runner),
+# we'll call the venv's python explicitly to run pip. This avoids "externally-managed-environment" errors.
+VENV_PY="$VENV_DIR/bin/python"
 
-# Install requirements if present
+# Ensure pip/setuptools/wheel are available/upgraded inside venv
 if [ -f requirements.txt ]; then
-  echo "Installing requirements..."
-  pip install -r requirements.txt
+  echo "Installing requirements into $VENV_DIR..."
+
+  # If pip isn't available in the venv, attempt to bootstrap it
+  if ! "$VENV_PY" -m pip --version >/dev/null 2>&1; then
+    echo "pip not found in venv; attempting to bootstrap with ensurepip..."
+    if "$VENV_PY" -m ensurepip --upgrade >/dev/null 2>&1; then
+      echo "ensurepip succeeded"
+    else
+      echo "ensurepip failed; attempting to download get-pip.py and install pip"
+      TMP_GET_PIP="/tmp/get-pip.py"
+      if command -v curl >/dev/null 2>&1; then
+        curl -sS https://bootstrap.pypa.io/get-pip.py -o "$TMP_GET_PIP"
+      elif command -v wget >/dev/null 2>&1; then
+        wget -q -O "$TMP_GET_PIP" https://bootstrap.pypa.io/get-pip.py
+      else
+        echo "Neither curl nor wget was found; cannot bootstrap pip. Install pip or ensure ensurepip is available." >&2
+        exit 1
+      fi
+      "$VENV_PY" "$TMP_GET_PIP"
+    fi
+  fi
+
+  # Now upgrade pip/setuptools/wheel and install requirements
+  "$VENV_PY" -m pip install --upgrade pip setuptools wheel
+  "$VENV_PY" -m pip install -r requirements.txt
 fi
 
 mkdir -p logs run
@@ -54,7 +77,7 @@ fi
 
 # Start uvicorn in background and capture PID
 echo "Starting uvicorn..."
-nohup python -m uvicorn main:app --host 0.0.0.0 --port 8000 > logs/server.log 2>&1 &
+nohup "$VENV_PY" -m uvicorn main:app --host 0.0.0.0 --port 8000 > logs/server.log 2>&1 &
 NEWPID=$!
 echo $NEWPID > "$PIDFILE"
 echo "Started uvicorn with PID $NEWPID"
