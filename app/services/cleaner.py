@@ -163,8 +163,13 @@ def extract_records(
     header_row_idx: int,
     selected_sheets: List[str],
     selected_branches: List[str],
+    account_name_concat_order: Dict[str, str] = None,
+    account_name_concat_separator: str = " ",
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Extract normalized records from source workbook with source row numbers."""
+    if account_name_concat_order is None:
+        account_name_concat_order = {}
+    
     all_extracted_records: List[Dict[str, Any]] = []
     all_skipped_records: List[Dict[str, Any]] = []
     
@@ -262,8 +267,40 @@ def extract_records(
 
             values: List[str] = []
             for target in TARGET_FIELDS:
-                source_field = mapped_fields.get(target, "")
-                values.append(get_val(row, source_field) or "N/A")
+                if target == "ACCOUNT_NAME":
+                    account_name = "N/A"
+                    if account_name_concat_order:
+                        # Sort concatenation columns by user-specified order
+                        def get_order_key(item):
+                            val = str(item[1]).strip()
+                            return int(val) if val.isdigit() else 999
+                            
+                        sorted_cols = sorted(account_name_concat_order.items(), key=get_order_key)
+                        
+                        # Concatenate selected columns for account name
+                        concat_parts = []
+                        for col_name, _ in sorted_cols:
+                            if col_name in header_map:
+                                col_idx = header_map[col_name]
+                                if col_idx < len(row):
+                                    val = row[col_idx]
+                                    part = str(val).strip() if val is not None else ""
+                                    if part:
+                                        concat_parts.append(part)
+                        
+                        if concat_parts:
+                            separator = account_name_concat_separator if account_name_concat_separator else " "
+                            account_name = separator.join(concat_parts)
+
+                    # Fallback to mapped field if concatenation is empty or not configured
+                    if account_name == "N/A":
+                        source_field = mapped_fields.get("ACCOUNT_NAME", "")
+                        account_name = get_val(row, source_field) or "N/A"
+                    
+                    values.append(account_name)
+                else:
+                    source_field = mapped_fields.get(target, "")
+                    values.append(get_val(row, source_field) or "N/A")
 
             # Validate TIN (mostly at least 5 alphanumeric characters with some numbers)
             if values[0] != "N/A":
@@ -272,11 +309,18 @@ def extract_records(
                 if len(tin_str) < 5 or tin_digits < 3:
                     values[0] = "N/A"
 
-            # Validate NUBAN (should be around 10 digits, minimum 8 characters to not be gibberish)
+            # Validate BVN (strictly 11 digits)
+            if values[3] != "N/A":
+                bvn_str = str(values[3]).strip()
+                bvn_digits = "".join(filter(str.isdigit, bvn_str))
+                if len(bvn_digits) != 11:
+                    values[3] = "N/A"
+
+            # Validate NUBAN (strictly 10 digits)
             if values[2] != "N/A":
-                nuban_str = values[2]
-                nuban_digits = sum(1 for c in nuban_str if c.isdigit())
-                if len(nuban_str) < 8 or nuban_digits < 7:
+                nuban_str = str(values[2]).strip()
+                nuban_digits = "".join(filter(str.isdigit, nuban_str))
+                if len(nuban_digits) != 10:
                     values[2] = "N/A"
 
             # Skip rows with no meaningful identity data
@@ -400,14 +444,21 @@ def process_and_save(
     header_row_idx: int,
     selected_sheets: List[str],
     selected_branches: List[str],
+    account_name_concat_order: Dict[str, str] = None,
+    account_name_concat_separator: str = " ",
 ) -> str:
     """Run full extraction, cleaning, and CSV save process."""
+    if account_name_concat_order is None:
+        account_name_concat_order = {}
+    
     records, skipped_records = extract_records(
         file_path,
         mapped_fields,
         header_row_idx,
         selected_sheets,
         selected_branches,
+        account_name_concat_order,
+        account_name_concat_separator,
     )
     duplicate_groups = find_duplicate_groups(records)
     resolved = resolve_duplicate_records(records, duplicate_groups, "merge", [])

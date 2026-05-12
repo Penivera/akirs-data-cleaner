@@ -63,14 +63,8 @@ def generate_markdown_report(
     headers = [str(h).strip() if h else "" for h in rows[header_row_idx]]
     header_map = {h: i for i, h in enumerate(headers) if h}
 
-    # If concat_cols specified, ensure they exist in headers (we will allow missing columns but warn later)
-    concat_indices = []
-    for c in concat_cols:
-        if c in header_map:
-            concat_indices.append(header_map[c])
-        else:
-            # keep -1 to indicate missing
-            concat_indices.append(-1)
+    # Concatenation logic now handled dynamically during row processing using config['concat_order']
+    pass
 
     id_idx = header_map.get(identity_col) if identity_col else None
     met_idx = header_map.get(metric_col) if metric_col else None
@@ -113,21 +107,30 @@ def generate_markdown_report(
 
         # Compute identity value either via a single identity column or concatenated cols
         id_val = ""
-        if concat_indices and any(ci != -1 for ci in concat_indices):
+        concat_order = config.get("concat_order")
+        if concat_order:
+            def get_order_key(item):
+                val = str(item[1]).strip()
+                return int(val) if val.isdigit() else 999
+            
+            sorted_cols = sorted(concat_order.items(), key=get_order_key)
             parts = []
-            for ci in concat_indices:
-                if ci != -1 and ci < len(row):
-                    parts.append(str(row[ci]).strip() if row[ci] is not None else "")
-                else:
-                    parts.append("")
-            # join but filter out empty parts to avoid extra separators
-            id_val = concat_separator.join([p for p in parts if p])
-            id_val = id_val.strip()
-        else:
-            if id_idx is None or id_idx >= len(row):
-                continue
-            id_val = str(row[id_idx]).strip() if row[id_idx] is not None else ""
+            for col_name, _ in sorted_cols:
+                if col_name in header_map:
+                    c_idx = header_map[col_name]
+                    if c_idx < len(row):
+                        part = str(row[c_idx]).strip() if row[c_idx] is not None else ""
+                        if part:
+                            parts.append(part)
+            
+            if parts:
+                id_val = concat_separator.join(parts)
 
+        # Fallback to single identity column if concatenation is empty or not configured
+        if not id_val:
+            if id_idx is not None and id_idx < len(row):
+                id_val = str(row[id_idx]).strip() if row[id_idx] is not None else ""
+            
         if not id_val or str(id_val).upper() in ["N/A", "NULL", "NONE"]:
             continue
 

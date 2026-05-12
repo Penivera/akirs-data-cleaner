@@ -53,8 +53,6 @@ async def upload_file(request: Request, file: List[UploadFile] = File(...)):
                 existing_state.original_filename == f.filename
                 and getattr(existing_state, "upload_hash", "") == file_hash
                 and getattr(existing_state, "upload_size", 0) == file_size
-                and (now - getattr(existing_state, "uploaded_at", 0.0))
-                <= DUPLICATE_UPLOAD_WINDOW_SECONDS
             ):
                 processed_states.append(existing_state)
                 is_duplicate = True
@@ -63,7 +61,7 @@ async def upload_file(request: Request, file: List[UploadFile] = File(...)):
         if is_duplicate:
             continue
 
-        temp_path = os.path.join("uploads", f.filename)
+        temp_path = os.path.join("uploads", os.path.basename(f.filename))
 
         with open(temp_path, "wb") as file_out:
             file_out.write(file_bytes)
@@ -120,7 +118,6 @@ async def edit_mapping(request: Request, file_id: str):
     preview_rows = []
     if state.status != "Needs Sheet" and getattr(state, "header_row_idx", None) is not None:
         try:
-            from app.services.cleaner import load_tabular_rows
             rows, _ = load_tabular_rows(state.saved_path, state.selected_sheets[0] if state.selected_sheets else "")
             preview_rows = rows[state.header_row_idx + 1 : state.header_row_idx + 4]
         except Exception:
@@ -170,6 +167,17 @@ async def save_mapping(request: Request, file_id: str):
         if form_data.getlist("selected_branches"):
             state.selected_branches = form_data.getlist("selected_branches")
 
+        # Save account name concatenation order configuration
+        state.account_name_concat_order = {}
+        for header in state.headers:
+            order_val = form_data.get(f"account_name_concat_order_{header}", "").strip()
+            if order_val:
+                state.account_name_concat_order[header] = order_val
+        
+        # Save account name concatenation separator
+        sep = form_data.get("account_name_concat_separator", " ")
+        state.account_name_concat_separator = sep if sep else " "
+
         # Check if all targets are mapped
         if all(state.mapped_fields.get(t) for t in TARGET_FIELDS):
             state.status = "Ready"
@@ -203,6 +211,8 @@ async def process_file(request: Request, file_id: str):
             state.header_row_idx,
             state.selected_sheets,
             state.selected_branches,
+            state.account_name_concat_order,
+            state.account_name_concat_separator,
         )
         state.skipped_records = skipped_records
         duplicate_groups = find_duplicate_groups(records)

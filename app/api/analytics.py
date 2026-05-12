@@ -48,8 +48,6 @@ async def analyse_upload(request: Request, file: List[UploadFile] = File(...)):
                 existing_state.original_filename == f.filename
                 and getattr(existing_state, "upload_hash", "") == file_hash
                 and getattr(existing_state, "upload_size", 0) == file_size
-                and (now - getattr(existing_state, "uploaded_at", 0.0))
-                <= DUPLICATE_UPLOAD_WINDOW_SECONDS
             ):
                 processed_states.append(existing_state)
                 is_duplicate = True
@@ -58,7 +56,7 @@ async def analyse_upload(request: Request, file: List[UploadFile] = File(...)):
         if is_duplicate:
             continue
 
-        temp_path = os.path.join("uploads", f"analytics_{f.filename}")
+        temp_path = os.path.join("uploads", f"analytics_{os.path.basename(f.filename)}")
 
         with open(temp_path, "wb") as file_out:
             file_out.write(file_bytes)
@@ -130,8 +128,14 @@ async def analyse_config(request: Request, file_id: str):
         state.config["limit"] = int(form_data.get("limit", 50))
         state.config["title"] = form_data.get("title", "DATA ANALYSIS REPORT")
         state.config["keep_columns"] = form_data.getlist("keep_columns")
-        # New: concatenation fields (may be empty)
-        state.config["concat_cols"] = form_data.getlist("concat_cols")
+        
+        # New: concatenation fields with ordering
+        state.config["concat_order"] = {}
+        for header in state.headers:
+            order_val = form_data.get(f"concat_order_{header}", "").strip()
+            if order_val:
+                state.config["concat_order"][header] = order_val
+        
         state.config["concat_separator"] = form_data.get("concat_separator", " ")
         # New: cumulative-by-nuban option and nuban column
         state.config["cumulate_by_nuban"] = (

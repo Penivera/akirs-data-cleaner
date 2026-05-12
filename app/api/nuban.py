@@ -42,8 +42,6 @@ async def nuban_upload(request: Request, file: List[UploadFile] = File(...)):
                 existing_state.original_filename == f.filename
                 and getattr(existing_state, "upload_hash", "") == file_hash
                 and getattr(existing_state, "upload_size", 0) == file_size
-                and (now - getattr(existing_state, "uploaded_at", 0.0))
-                <= DUPLICATE_UPLOAD_WINDOW_SECONDS
             ):
                 processed_states.append(existing_state)
                 is_duplicate = True
@@ -52,7 +50,7 @@ async def nuban_upload(request: Request, file: List[UploadFile] = File(...)):
         if is_duplicate:
             continue
 
-        temp_path = os.path.join("uploads", f"nuban_{f.filename}")
+        temp_path = os.path.join("uploads", f"nuban_{os.path.basename(f.filename)}")
 
         with open(temp_path, "wb") as file_out:
             file_out.write(file_bytes)

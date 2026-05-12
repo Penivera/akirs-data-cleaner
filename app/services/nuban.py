@@ -27,10 +27,24 @@ async def get_bank_list() -> List[Dict[str, str]]:
     return []
 
 async def resolve_account(account_number: str, bank_code: str) -> Optional[str]:
-    """Resolve account name via Paystack."""
+    """Resolve account name via Paystack with Flutterwave fallback."""
+    # 1. Try Paystack first
+    if settings.paystack_secret_key:
+        name = await resolve_account_paystack(account_number, bank_code)
+        if name:
+            return name
+            
+    # 2. Try Flutterwave as fallback
+    if settings.flutterwave_secret_key:
+        # Translate bank code for Flutterwave if needed
+        fw_bank_code = translate_to_flutterwave_code(bank_code)
+        return await resolve_account_flutterwave(account_number, fw_bank_code)
+        
+    return None
+
+async def resolve_account_paystack(account_number: str, bank_code: str) -> Optional[str]:
+    """Internal helper for Paystack resolution."""
     key = settings.paystack_secret_key
-    if not key:
-        return None
     url = f"https://api.paystack.co/bank/resolve?account_number={account_number}&bank_code={bank_code}"
     headers = {"Authorization": f"Bearer {key}"}
     async with httpx.AsyncClient() as client:
@@ -40,16 +54,46 @@ async def resolve_account(account_number: str, bank_code: str) -> Optional[str]:
                 data = response.json()
                 if data.get("status"):
                     return data["data"]["account_name"]
-            else:
-                print(f"Paystack error: {response.status_code} - {response.text}")
         except Exception as e:
-            print(f"Error resolving account {account_number}: {e}")
+            print(f"Paystack resolution error: {e}")
     return None
+
+async def resolve_account_flutterwave(account_number: str, bank_code: str) -> Optional[str]:
+    """Internal helper for Flutterwave resolution."""
+    key = settings.flutterwave_secret_key
+    url = "https://api.flutterwave.com/v3/accounts/resolve"
+    headers = {"Authorization": f"Bearer {key}"}
+    payload = {"account_number": account_number, "account_bank": bank_code}
+    async with httpx.AsyncClient() as client:
+        try:
+            # Note: Flutterwave uses POST for account resolution
+            response = await client.post(url, headers=headers, json=payload)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("status") == "success":
+                    return data["data"]["account_name"]
+        except Exception as e:
+            print(f"Flutterwave resolution error: {e}")
+    return None
+
+def translate_to_flutterwave_code(bank_code: str) -> str:
+    """
+    Map Paystack bank codes to Flutterwave bank codes.
+    (Simple example mapping, should be expanded based on production needs)
+    """
+    mapping = {
+        "044": "044",  # Access Bank
+        "011": "011",  # First Bank
+        "058": "058",  # GTBank
+        "033": "033",  # UBA
+        "232": "232",  # Sterling
+    }
+    return mapping.get(bank_code, bank_code)
 
 async def process_nuban_resolution(state: NubanState):
     """Process file to resolve NUBANs and populate target field."""
-    if not settings.paystack_secret_key:
-        raise Exception("PAYSTACK_SECRET_KEY not set in environment or .env file")
+    if not settings.paystack_secret_key and not settings.flutterwave_secret_key:
+        raise Exception("Neither PAYSTACK_SECRET_KEY nor FLUTTERWAVE_SECRET_KEY set in environment")
     
     file_path = state.saved_path
     bank_code = state.selected_bank_code

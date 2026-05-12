@@ -19,6 +19,8 @@ class FileState:
     duplicate_groups: List[Dict[str, Any]]
     skipped_records: List[Dict[str, Any]]
     header_row_idx: int
+    account_name_concat_order: Dict[str, str]
+    account_name_concat_separator: str
 
     def __init__(self):
         self.id = str(uuid.uuid4())
@@ -36,6 +38,8 @@ class FileState:
         self.duplicate_groups = []
         self.skipped_records = []
         self.header_row_idx = 0
+        self.account_name_concat_order = {}
+        self.account_name_concat_separator = " "
 
 
 # Global state to keep track of uploaded files in memory

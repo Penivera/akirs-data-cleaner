@@ -9,6 +9,12 @@ class Settings(BaseSettings):
         description="Paystack Secret Key for NUBAN resolution"
     )
     
+    flutterwave_secret_key: Optional[str] = Field(
+        default=None,
+        validation_alias="FLUTTERWAVE_SECRET_KEY",
+        description="Flutterwave Secret Key for fallback NUBAN resolution"
+    )
+    
     app_name: str = Field(
         default="AKIRS Batch File Cleaner",
         description="Name of the application"

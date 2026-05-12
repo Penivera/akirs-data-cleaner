@@ -112,6 +112,42 @@
             <label>Sort Limit (Top X Records) <br><small style="color: #64748b; font-size: 0.75rem;">(e.g., 50 means Top 50 Spenders)</small></label>
             <input type="number" name="limit" class="fancy-select" value="{{ file.config.get('limit', 50) }}" required>
         </div>
+
+        <!-- Identity Concatenation Configuration -->
+        <div class="mapping-row" style="grid-column: 1 / -1;">
+            <label style="color: #cbd5e1; font-size: 0.95rem; margin-bottom: 12px; display: block; font-weight: 600;">IDENTITY CONCATENATION (Advanced)</label>
+            <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 10px; border: 1px solid var(--glass-border);">
+                <p style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 15px;">Optionally combine multiple columns to create a unique identity (e.g. Account Name + Branch):</p>
+                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px;">
+                    {% for h in file.headers %}
+                    <div style="display: flex; align-items: center; gap: 12px; background: rgba(255,255,255,0.03); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(148,163,184,0.15);">
+                        <input type="text" 
+                            name="concat_order_{{ h }}" 
+                            placeholder="Order" 
+                            maxlength="2"
+                            value="{{ file.config.concat_order.get(h, '') if file.config.concat_order else '' }}"
+                            style="width: 55px; padding: 6px; background: rgba(0,0,0,0.4); border: 1px solid var(--primary); border-radius: 6px; color: #fff; text-align: center; font-weight: 700; font-size: 0.9rem;" />
+                        <span style="flex: 1; color: #f8fafc; font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ h }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div style="margin-top: 12px; display: flex; align-items: center; gap: 6px;">
+                     <span style="color: var(--primary); font-size: 1rem;">ℹ️</span>
+                     <small style="color: #64748b; font-size: 0.75rem;">
+                        Assign numbers (1, 2, 3) to columns. If used, this overrides the single 'Who are we ranking?' selection above.
+                    </small>
+                </div>
+                
+                <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid rgba(148,163,184,0.2);">
+                    <label style="color: #cbd5e1; font-size: 0.9rem; margin-bottom: 8px; display: block; font-weight: 600;">Separator:</label>
+                    <input type="text" 
+                        name="concat_separator" 
+                        placeholder="Space, comma, dash, etc." 
+                        value="{{ file.config.get('concat_separator', ' ') }}"
+                        style="width: 100%; padding: 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--glass-border); border-radius: 8px; color: #f8fafc; font-size: 0.95rem; box-sizing: border-box; outline: none;" />
+                </div>
+            </div>
+        </div>
         
         <div class="mapping-row" style="grid-column: 1 / -1;">
             <label>Additional Metadata Columns to Keep (uncheck to drop)</label>
