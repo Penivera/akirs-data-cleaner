@@ -58,46 +58,9 @@
             </div>
             {% endif %}
 
-            <!-- Account Name Concatenation Configuration -->
-            <div class="mapping-row" style="grid-column: 1 / -1;">
-                <label style="color: #cbd5e1; font-size: 0.95rem; margin-bottom: 12px; display: block; font-weight: 600;">ACCOUNT NAME CONCATENATION</label>
-                <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 10px; border: 1px solid var(--glass-border);">
-                    <p style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 15px;">Specify the order to concatenate columns (assign a number to each column):</p>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px;">
-                        {% for header in file.headers %}
-                        <div style="display: flex; align-items: center; gap: 12px; background: rgba(255,255,255,0.03); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(148,163,184,0.15); transition: border-color 0.2s;">
-                            <input type="text" 
-                                name="account_name_concat_order_{{ header }}" 
-                                placeholder="Order" 
-                                maxlength="2"
-                                value="{% if file.account_name_concat_order and header in file.account_name_concat_order %}{{ file.account_name_concat_order[header] }}{% endif %}"
-                                style="width: 55px; padding: 6px; background: rgba(0,0,0,0.4); border: 1px solid var(--primary); border-radius: 6px; color: #fff; text-align: center; font-weight: 700; font-size: 0.9rem;" />
-                            <span style="flex: 1; color: #f8fafc; font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ header }}</span>
-                        </div>
-                        {% endfor %}
-                    </div>
-                    <div style="margin-top: 12px; display: flex; align-items: center; gap: 6px;">
-                         <span style="color: var(--primary); font-size: 1rem;">ℹ️</span>
-                         <small style="color: #64748b; font-size: 0.75rem;">
-                            Enter numbers (1, 2, 3, etc.) to specify order. Leave blank to skip.
-                        </small>
-                    </div>
+           </div>
                     
-                    <!-- Separator Selection -->
-                    <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid rgba(148,163,184,0.2);">
-                        <label style="color: #cbd5e1; font-size: 0.9rem; margin-bottom: 8px; display: block; font-weight: 600;">Separator between names:</label>
-                        <input type="text" 
-                            name="account_name_concat_separator" 
-                            placeholder="Space, comma, dash, etc." 
-                            value="{{ file.account_name_concat_separator if file.account_name_concat_separator else ' ' }}"
-                            style="width: 100%; padding: 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--glass-border); border-radius: 8px; color: #f8fafc; font-size: 0.95rem; box-sizing: border-box; outline: none;" 
-                            onfocus="this.style.borderColor='var(--primary)'" 
-                            onblur="this.style.borderColor='var(--glass-border)'"/>
-                        <small style="color: #64748b; font-size: 0.75rem; margin-top: 6px; display: block;">Common examples: <code>[space]</code>, <code>,</code>, <code>-</code>, <code>|</code>, <code>AND</code></small>
-                    </div>
-                </div>
-            </div>
-            
+             
             {% for target in targets %}
             <div class="mapping-row">
                 <label>{{ target }}</label>
