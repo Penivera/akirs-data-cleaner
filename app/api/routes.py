@@ -159,8 +159,11 @@ async def save_mapping(request: Request, file_id: str):
         except Exception as e:
             state.status = f"Error: {str(e)}"
     else:
+        separator = form_data.get("ACCOUNT_NAME_SEPARATOR", " ")
+        state.mapped_fields["__ACCOUNT_NAME_SEPARATOR"] = separator if separator else " "
+
         for target in TARGET_FIELDS:
-            val = form_data.get(target)
+            val = form_data.getlist(target)[:3] if target == "ACCOUNT_NAME" else form_data.get(target)
             if val is not None:
                 state.mapped_fields[target] = val
 

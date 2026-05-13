@@ -185,6 +185,13 @@ def extract_records(
         header_map = {header: idx for idx, header in enumerate(excel_headers)}
 
         def get_val(row, source_field):
+            if isinstance(source_field, list):
+                separator = mapped_fields.get("__ACCOUNT_NAME_SEPARATOR") or " "
+                return separator.join(
+                    value
+                    for value in (get_val(row, field) for field in source_field[:3])
+                    if value
+                )
             if source_field == "__NA__":
                 return ""
             if source_field and source_field in header_map:
