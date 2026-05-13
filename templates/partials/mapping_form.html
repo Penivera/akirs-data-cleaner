@@ -61,6 +61,78 @@
             {% for target in targets %}
             <div class="mapping-row">
                 <label>{{ target }}</label>
+                {% if target == 'ACCOUNT_NAME' %}
+                {% set raw_account_name = file.mapped_fields.get(target, '') %}
+                {% set account_name_fields = raw_account_name if raw_account_name is sequence and raw_account_name is not string else ([raw_account_name] if raw_account_name else []) %}
+                <details id="account-name-picker-{{ file.id }}" data-account-name-picker data-max-selected="3" style="position: relative;">
+                    <summary class="fancy-select" style="display: flex; align-items: center; cursor: pointer; list-style: none; border-color: {% if account_name_fields %}#4CAF50{% else %}var(--glass-border){% endif %};">
+                        <span data-account-name-label style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">-- Select Column --</span>
+                    </summary>
+                    <div data-account-name-values>
+                        {% for selected_header in account_name_fields %}
+                        <input type="hidden" name="ACCOUNT_NAME" value="{{ selected_header }}">
+                        {% endfor %}
+                    </div>
+                    <div style="position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 20; border: 1px solid var(--glass-border); border-radius: 8px; padding: 10px; background: #0f172a; max-height: 180px; overflow-y: auto; box-shadow: 0 18px 45px rgba(0,0,0,0.35);">
+                        {% for header in file.headers %}
+                        <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: #f8fafc; font-size: 13px; font-weight: normal;">
+                            <input type="checkbox" value="{{ header }}" {% if header in account_name_fields %}checked{% endif %} style="accent-color: var(--primary);">
+                            <span data-order style="display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 999px; border: 1px solid var(--glass-border); color: #cbd5e1; font-size: 11px;"></span>
+                            <span>{{ header }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                </details>
+                <script>
+                    (() => {
+                        const picker = document.getElementById("account-name-picker-{{ file.id }}");
+                        if (!picker) return;
+
+                        const maxSelected = Number(picker.dataset.maxSelected || 3);
+                        const valueHolder = picker.querySelector("[data-account-name-values]");
+                        const label = picker.querySelector("[data-account-name-label]");
+                        const checkboxes = Array.from(picker.querySelectorAll('input[type="checkbox"]'));
+                        let selected = checkboxes.filter(cb => cb.checked).map(cb => cb.value).slice(0, maxSelected);
+
+                        const render = () => {
+                            valueHolder.innerHTML = "";
+                            selected.forEach(value => {
+                                const input = document.createElement("input");
+                                input.type = "hidden";
+                                input.name = "ACCOUNT_NAME";
+                                input.value = value;
+                                valueHolder.appendChild(input);
+                            });
+
+                            checkboxes.forEach(cb => {
+                                const order = selected.indexOf(cb.value);
+                                const badge = cb.closest("label").querySelector("[data-order]");
+                                cb.checked = order !== -1;
+                                badge.textContent = order === -1 ? "" : String(order + 1);
+                            });
+
+                            label.textContent = selected.length ? selected.join(" + ") : "-- Select Column --";
+                        };
+
+                        checkboxes.forEach(cb => {
+                            cb.addEventListener("change", () => {
+                                if (cb.checked) {
+                                    if (!selected.includes(cb.value) && selected.length < maxSelected) {
+                                        selected.push(cb.value);
+                                    } else if (selected.length >= maxSelected) {
+                                        cb.checked = false;
+                                    }
+                                } else {
+                                    selected = selected.filter(value => value !== cb.value);
+                                }
+                                render();
+                            });
+                        });
+
+                        render();
+                    })();
+                </script>
+                {% else %}
                 <select name="{{ target }}" class="fancy-select" {% if file.mapped_fields[target] %}style="border-color: #4CAF50;"{% endif %} required>
                     <option value="">-- Select Column --</option>
                     <option value="__NA__" {% if file.mapped_fields[target] == '__NA__' %}selected{% endif %}>N/A (Column Missing)</option>
@@ -70,6 +142,7 @@
                     </option>
                     {% endfor %}
                 </select>
+                {% endif %}
             </div>
             {% endfor %}
         {% endif %}

@@ -163,7 +163,7 @@ async def save_mapping(request: Request, file_id: str):
             state.status = f"Error: {str(e)}"
     else:
         for target in TARGET_FIELDS:
-            val = form_data.get(target)
+            val = form_data.getlist(target)[:3] if target == "ACCOUNT_NAME" else form_data.get(target)
             if val is not None:
                 state.mapped_fields[target] = val
 
