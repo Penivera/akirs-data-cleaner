@@ -143,9 +143,9 @@ async def analyse_config(request: Request, file_id: str):
         )
         state.config["nuban_col"] = form_data.get("nuban_col", "")
 
-        # Consider configured when metric is selected and either identity or concat cols are provided
+        # Consider configured when metric is selected and either identity or concat order are provided
         if (
-            state.config["identity_col"] or state.config["concat_cols"]
+            state.config["identity_col"] or state.config["concat_order"]
         ) and state.config["metric_col"]:
             state.status = "Configured"
 
@@ -197,6 +197,7 @@ async def analyse_generate(request: Request, file_id: str):
         else:
             report_path = process_analytics(state)
         state.report_path = report_path
+        state.report_filename = os.path.basename(report_path)
         state.status = "Generated"
     except Exception as e:
         state.status = f"Failed ({str(e)})"
