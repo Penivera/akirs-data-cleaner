@@ -161,34 +161,42 @@ def extract_records(
     file_path: str,
     mapped_fields: Dict[str, str],
     header_row_idx: int,
-    selected_sheet: str,
+    selected_sheets: List[str],
     selected_branches: List[str],
+    account_name_concat_order: Dict[str, str] = None,
+    account_name_concat_separator: str = " ",
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Extract normalized records from source workbook with source row numbers."""
-    rows, _ = load_tabular_rows(file_path, selected_sheet)
-    if len(rows) <= header_row_idx:
-        return [], []
+    if account_name_concat_order is None:
+        account_name_concat_order = {}
+    
+    all_extracted_records: List[Dict[str, Any]] = []
+    all_skipped_records: List[Dict[str, Any]] = []
+    
+    # Support backward compatibility if a string is passed
+    sheets_to_process = [selected_sheets] if isinstance(selected_sheets, str) else selected_sheets
 
-    excel_headers = [str(h).strip() if h else "" for h in rows[header_row_idx]]
-    header_map = {header: idx for idx, header in enumerate(excel_headers)}
-
-    def get_val(row, source_field):
-        if source_field == "__NA__":
-            return ""
-        if source_field and source_field in header_map:
-            h_idx = header_map[source_field]
-            if h_idx < len(row):
-                val = row[h_idx]
-                return str(val).strip() if val is not None else ""
-        return ""
-
-    extracted_records: List[Dict[str, Any]] = []
-    skipped_records: List[Dict[str, Any]] = []
-    for idx, row in enumerate(rows[header_row_idx + 1 :], start=header_row_idx + 2):
-        if not any(row):
+    for sheet_name in sheets_to_process:
+        rows, _ = load_tabular_rows(file_path, sheet_name)
+        if len(rows) <= header_row_idx:
             continue
 
-        # Filter branch if configured
+        excel_headers = [str(h).strip() if h else "" for h in rows[header_row_idx]]
+        header_map = {header: idx for idx, header in enumerate(excel_headers)}
+
+        def get_val(row, source_field):
+            if source_field == "__NA__":
+                return ""
+            if source_field and source_field in header_map:
+                h_idx = header_map[source_field]
+                if h_idx < len(row):
+                    val = row[h_idx]
+                    return str(val).strip() if val is not None else ""
+            return ""
+
+
+        # Identify best branch header once per sheet
+        b_idx = None
         if selected_branches:
             branch_keywords = [
                 "BRANCH_NAME",
@@ -210,75 +218,140 @@ def extract_records(
                 best_header = candidate_headers[0]
                 max_score = -100
 
+                # Peek at some rows to score
+                rows_peek = rows[header_row_idx + 1 : header_row_idx + 11]
+
                 for h_name in candidate_headers:
                     h_idx = header_map[h_name]
-                    if h_idx >= len(row):
-                        continue
-                    val_str = str(row[h_idx]).strip() if row[h_idx] is not None else ""
+                    alpha_count = 0
+                    total_len = 0
+                    pure_numeric = 0
+                    peek_count = 0
 
-                    alpha_count = sum(1 for c in val_str if c.isalpha())
-                    curr_score = (alpha_count / (len(val_str) + 1)) if val_str else 0
+                    for p_row in rows_peek:
+                        if h_idx < len(p_row) and p_row[h_idx] is not None:
+                            peek_count += 1
+                            val_s = str(p_row[h_idx]).strip()
+                            if not val_s: continue
+                            alpha_count += sum(1 for c in val_s if c.isalpha())
+                            total_len += len(val_s)
+                            if val_s.isdigit(): pure_numeric += 1
 
-                    if val_str.isdigit():
+                    curr_score = (alpha_count / (total_len + 1)) if total_len > 0 else 0
+                    if peek_count > 0 and pure_numeric / peek_count > 0.8:
                         curr_score -= 5.0
                     if "NAME" in h_name.upper():
                         curr_score += 2.0
+                    if "BRANCH" in h_name.upper(): # Prefer BRANCH over STATE if both exist
+                        curr_score += 1.5
 
                     if curr_score > max_score:
                         max_score = curr_score
                         best_header = h_name
-
+                
                 b_idx = header_map[best_header]
-                branch_val = str(row[b_idx]).strip() if b_idx < len(row) and row[b_idx] else ""
 
+        extracted_records: List[Dict[str, Any]] = []
+        skipped_records: List[Dict[str, Any]] = []
+        for idx, row in enumerate(rows[header_row_idx + 1 :], start=header_row_idx + 2):
+            if not any(row):
+                continue
+
+            # Filter branch if configured
+            if b_idx is not None:
+                branch_val = str(row[b_idx]).strip() if b_idx < len(row) and row[b_idx] else ""
                 if not any(
                     sb.upper() in branch_val.upper() for sb in selected_branches
                 ):
                     continue
 
-        values: List[str] = []
-        for target in TARGET_FIELDS:
-            source_field = mapped_fields.get(target, "")
-            values.append(get_val(row, source_field) or "N/A")
+            values: List[str] = []
+            for target in TARGET_FIELDS:
+                if target == "ACCOUNT_NAME":
+                    account_name = "N/A"
+                    if account_name_concat_order:
+                        # Sort concatenation columns by user-specified order
+                        def get_order_key(item):
+                            val = str(item[1]).strip()
+                            return int(val) if val.isdigit() else 999
+                            
+                        sorted_cols = sorted(account_name_concat_order.items(), key=get_order_key)
+                        
+                        # Concatenate selected columns for account name
+                        concat_parts = []
+                        for col_name, _ in sorted_cols:
+                            if col_name in header_map:
+                                col_idx = header_map[col_name]
+                                if col_idx < len(row):
+                                    val = row[col_idx]
+                                    part = str(val).strip() if val is not None else ""
+                                    if part:
+                                        concat_parts.append(part)
+                        
+                        if concat_parts:
+                            separator = account_name_concat_separator if account_name_concat_separator else " "
+                            account_name = separator.join(concat_parts)
 
-        # Validate TIN (mostly at least 5 alphanumeric characters with some numbers)
-        if values[0] != "N/A":
-            tin_str = values[0]
-            tin_digits = sum(1 for c in tin_str if c.isdigit())
-            if len(tin_str) < 5 or tin_digits < 3:
-                values[0] = "N/A"
+                    # Fallback to mapped field if concatenation is empty or not configured
+                    if account_name == "N/A":
+                        source_field = mapped_fields.get("ACCOUNT_NAME", "")
+                        account_name = get_val(row, source_field) or "N/A"
+                    
+                    values.append(account_name)
+                else:
+                    source_field = mapped_fields.get(target, "")
+                    values.append(get_val(row, source_field) or "N/A")
 
-        # Validate NUBAN (should be around 10 digits, minimum 8 characters to not be gibberish)
-        if values[2] != "N/A":
-            nuban_str = values[2]
-            nuban_digits = sum(1 for c in nuban_str if c.isdigit())
-            if len(nuban_str) < 8 or nuban_digits < 7:
-                values[2] = "N/A"
+            # Validate TIN (mostly at least 5 alphanumeric characters with some numbers)
+            if values[0] != "N/A":
+                tin_str = values[0]
+                tin_digits = sum(1 for c in tin_str if c.isdigit())
+                if len(tin_str) < 5 or tin_digits < 3:
+                    values[0] = "N/A"
 
-        # Skip rows with no meaningful identity data
-        if values[2] == "N/A" and values[1] == "N/A":
-            continue
+            # Validate BVN (strictly 11 digits)
+            if values[3] != "N/A":
+                bvn_str = str(values[3]).strip()
+                bvn_digits = "".join(filter(str.isdigit, bvn_str))
+                if len(bvn_digits) != 11:
+                    values[3] = "N/A"
 
-        # Skip records with missing NUBAN and capture them
-        if values[2] == "N/A":
-            skipped_records.append(
+            # Validate NUBAN (strictly 10 digits)
+            if values[2] != "N/A":
+                nuban_str = str(values[2]).strip()
+                nuban_digits = "".join(filter(str.isdigit, nuban_str))
+                if len(nuban_digits) != 10:
+                    values[2] = "N/A"
+
+            # Skip rows with no meaningful identity data
+            if values[2] == "N/A" and values[1] == "N/A":
+                continue
+
+            # Skip records with missing NUBAN and capture them
+            if values[2] == "N/A":
+                skipped_records.append(
+                    {
+                        "source_row": idx,
+                        "sheet": sheet_name,
+                        "values": values,
+                    }
+                )
+                continue
+
+            extracted_records.append(
                 {
+                    "id": f"s{sheets_to_process.index(sheet_name)}r{idx}",
                     "source_row": idx,
+                    "sheet": sheet_name,
+                    "nuban": values[2],
                     "values": values,
                 }
             )
-            continue
+        
+        all_extracted_records.extend(extracted_records)
+        all_skipped_records.extend(skipped_records)
 
-        extracted_records.append(
-            {
-                "id": f"r{idx}",
-                "source_row": idx,
-                "nuban": values[2],
-                "values": values,
-            }
-        )
-
-    return extracted_records, skipped_records
+    return all_extracted_records, all_skipped_records
 
 
 def find_duplicate_groups(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -365,21 +438,29 @@ def save_cleaned_records(file_path: str, records: List[Dict[str, Any]]) -> str:
 
 
 def process_and_save(
+    file_id: str,
     file_path: str,
     mapped_fields: Dict[str, str],
     header_row_idx: int,
-    selected_sheet: str,
+    selected_sheets: List[str],
     selected_branches: List[str],
-) -> Tuple[int, int, str]:
-    """Extracts, cleans, and deduplicates records, saving to cleaned/."""
+    account_name_concat_order: Dict[str, str] = None,
+    account_name_concat_separator: str = " ",
+) -> str:
+    """Run full extraction, cleaning, and CSV save process."""
+    if account_name_concat_order is None:
+        account_name_concat_order = {}
+    
     records, skipped_records = extract_records(
         file_path,
         mapped_fields,
         header_row_idx,
-        selected_sheet,
+        selected_sheets,
         selected_branches,
+        account_name_concat_order,
+        account_name_concat_separator,
     )
     duplicate_groups = find_duplicate_groups(records)
     resolved = resolve_duplicate_records(records, duplicate_groups, "merge", [])
     target_file = save_cleaned_records(file_path, resolved)
-    return len(resolved), len(records) - len(resolved) + len(skipped_records), target_file
+    return target_file

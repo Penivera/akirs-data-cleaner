@@ -53,8 +53,6 @@ async def upload_file(request: Request, file: List[UploadFile] = File(...)):
                 existing_state.original_filename == f.filename
                 and getattr(existing_state, "upload_hash", "") == file_hash
                 and getattr(existing_state, "upload_size", 0) == file_size
-                and (now - getattr(existing_state, "uploaded_at", 0.0))
-                <= DUPLICATE_UPLOAD_WINDOW_SECONDS
             ):
                 processed_states.append(existing_state)
                 is_duplicate = True
@@ -63,7 +61,7 @@ async def upload_file(request: Request, file: List[UploadFile] = File(...)):
         if is_duplicate:
             continue
 
-        temp_path = os.path.join("uploads", f.filename)
+        temp_path = os.path.join("uploads", os.path.basename(f.filename))
 
         with open(temp_path, "wb") as file_out:
             file_out.write(file_bytes)
@@ -83,9 +81,8 @@ async def upload_file(request: Request, file: List[UploadFile] = File(...)):
             if len(sheet_names) > 1:
                 state.status = "Needs Sheet"
             else:
-                if sheet_names:
-                    state.selected_sheet = sheet_names[0]
-                rows, _ = load_tabular_rows(temp_path, state.selected_sheet)
+                state.selected_sheets = [sheet_names[0]] if sheet_names else [""]
+                rows, _ = load_tabular_rows(temp_path, state.selected_sheets[0])
                 idx, headers = find_header_row_and_headers_from_rows(rows)
                 state.headers = [h for h in headers if h]
                 state.header_row_idx = idx
@@ -121,8 +118,7 @@ async def edit_mapping(request: Request, file_id: str):
     preview_rows = []
     if state.status != "Needs Sheet" and getattr(state, "header_row_idx", None) is not None:
         try:
-            from app.services.cleaner import load_tabular_rows
-            rows, _ = load_tabular_rows(state.saved_path, state.selected_sheet)
+            rows, _ = load_tabular_rows(state.saved_path, state.selected_sheets[0] if state.selected_sheets else "")
             preview_rows = rows[state.header_row_idx + 1 : state.header_row_idx + 4]
         except Exception:
             pass
@@ -143,14 +139,11 @@ async def save_mapping(request: Request, file_id: str):
     form_data = await request.form()
 
     # Handle Sheet Selection
-    if (
-        form_data.get("selected_sheet")
-        and form_data.get("selected_sheet") in state.sheet_names
-    ):
-        state.selected_sheet = form_data.get("selected_sheet")
-        # Proceed with parsing this sheet
+    if form_data.getlist("selected_sheets"):
+        state.selected_sheets = form_data.getlist("selected_sheets")
+        # Proceed with parsing the first selected sheet for header detection
         try:
-            rows, _ = load_tabular_rows(state.saved_path, state.selected_sheet)
+            rows, _ = load_tabular_rows(state.saved_path, state.selected_sheets[0])
             idx, headers = find_header_row_and_headers_from_rows(rows)
             state.headers = [h for h in headers if h]
             state.header_row_idx = idx
@@ -173,6 +166,17 @@ async def save_mapping(request: Request, file_id: str):
 
         if form_data.getlist("selected_branches"):
             state.selected_branches = form_data.getlist("selected_branches")
+
+        # Save account name concatenation order configuration
+        state.account_name_concat_order = {}
+        for header in state.headers:
+            order_val = form_data.get(f"account_name_concat_order_{header}", "").strip()
+            if order_val:
+                state.account_name_concat_order[header] = order_val
+        
+        # Save account name concatenation separator
+        sep = form_data.get("account_name_concat_separator", " ")
+        state.account_name_concat_separator = sep if sep else " "
 
         # Check if all targets are mapped
         if all(state.mapped_fields.get(t) for t in TARGET_FIELDS):
@@ -204,9 +208,11 @@ async def process_file(request: Request, file_id: str):
         records, skipped_records = extract_records(
             state.saved_path,
             state.mapped_fields,
-            getattr(state, "header_row_idx", 3),
-            state.selected_sheet,
+            state.header_row_idx,
+            state.selected_sheets,
             state.selected_branches,
+            state.account_name_concat_order,
+            state.account_name_concat_separator,
         )
         state.skipped_records = skipped_records
         duplicate_groups = find_duplicate_groups(records)
@@ -279,6 +285,40 @@ async def resolve_duplicates(request: Request, file_id: str):
     )
 
 
+@router.get("/api/view/process", response_class=HTMLResponse)
+async def get_process_view(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/process_view.html",
+        context={"request": request, "files": file_db.values()},
+    )
+
+
+@router.get("/api/view/cleaned", response_class=HTMLResponse)
+async def get_cleaned_view(request: Request):
+    import math
+
+    cleaned_dir = "cleaned"
+    os.makedirs(cleaned_dir, exist_ok=True)
+    files_info = []
+
+    for fname in os.listdir(cleaned_dir):
+        if fname.endswith(".csv") or fname.endswith(".xlsx"):
+            fpath = os.path.join(cleaned_dir, fname)
+            size_bytes = os.path.getsize(fpath)
+            size_mb = round(size_bytes / (1024 * 1024), 2) if size_bytes > 0 else 0
+            files_info.append({"name": fname, "size": size_mb})
+
+    # Sort files by name or modified time if needed
+    files_info.sort(key=lambda x: x["name"])
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/cleaned_view.html",
+        context={"request": request, "cleaned_files": files_info},
+    )
+
+
 @router.get("/api/view/{file_id}", response_class=HTMLResponse)
 async def view_data(request: Request, file_id: str):
     import csv
@@ -315,40 +355,6 @@ async def view_skipped(request: Request, file_id: str):
         request=request,
         name="partials/skip_report.html",
         context={"request": request, "file": state, "targets": TARGET_FIELDS},
-    )
-
-
-@router.get("/api/view/process", response_class=HTMLResponse)
-async def get_process_view(request: Request):
-    return templates.TemplateResponse(
-        request=request,
-        name="partials/process_view.html",
-        context={"request": request, "files": file_db.values()},
-    )
-
-
-@router.get("/api/view/cleaned", response_class=HTMLResponse)
-async def get_cleaned_view(request: Request):
-    import math
-
-    cleaned_dir = "cleaned"
-    os.makedirs(cleaned_dir, exist_ok=True)
-    files_info = []
-
-    for fname in os.listdir(cleaned_dir):
-        if fname.endswith(".csv") or fname.endswith(".xlsx"):
-            fpath = os.path.join(cleaned_dir, fname)
-            size_bytes = os.path.getsize(fpath)
-            size_mb = round(size_bytes / (1024 * 1024), 2) if size_bytes > 0 else 0
-            files_info.append({"name": fname, "size": size_mb})
-
-    # Sort files by name or modified time if needed
-    files_info.sort(key=lambda x: x["name"])
-
-    return templates.TemplateResponse(
-        request=request,
-        name="partials/cleaned_view.html",
-        context={"request": request, "cleaned_files": files_info},
     )
 
 

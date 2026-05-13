@@ -1,19 +1,24 @@
-from fastapi import APIRouter, UploadFile, File, Request, Form
-from fastapi.responses import HTMLResponse, Response, FileResponse
-from fastapi.templating import Jinja2Templates
 import hashlib
 import os
 import time
 from typing import List
 
-from app.core.state import analysis_db, AnalysisState
-from app.services.cleaner import load_tabular_rows, find_header_row_and_headers_from_rows
-from app.services.analyser import process_analytics
+from fastapi import APIRouter, File, Form, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.templating import Jinja2Templates
+
+from app.core.state import AnalysisState, analysis_db
+from app.services.analyser import process_analytics, process_cumulative_transactions
+from app.services.cleaner import (
+    find_header_row_and_headers_from_rows,
+    load_tabular_rows,
+)
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
 DUPLICATE_UPLOAD_WINDOW_SECONDS = 5
+
 
 @router.get("/api/analyse/view", response_class=HTMLResponse)
 async def get_analyse_view(request: Request):
@@ -23,36 +28,35 @@ async def get_analyse_view(request: Request):
         context={"request": request, "files": analysis_db.values()},
     )
 
+
 @router.post("/api/analyse/upload", response_class=HTMLResponse)
 async def analyse_upload(request: Request, file: List[UploadFile] = File(...)):
     os.makedirs("uploads", exist_ok=True)
-    
+
     files_to_process = file if isinstance(file, list) else [file]
     processed_states = []
     now = time.time()
-    
+
     for f in files_to_process:
         file_bytes = await f.read()
         file_hash = hashlib.sha256(file_bytes).hexdigest()
         file_size = len(file_bytes)
-        
+
         is_duplicate = False
         for existing_state in analysis_db.values():
             if (
                 existing_state.original_filename == f.filename
                 and getattr(existing_state, "upload_hash", "") == file_hash
                 and getattr(existing_state, "upload_size", 0) == file_size
-                and (now - getattr(existing_state, "uploaded_at", 0.0))
-                <= DUPLICATE_UPLOAD_WINDOW_SECONDS
             ):
                 processed_states.append(existing_state)
                 is_duplicate = True
                 break
-                
+
         if is_duplicate:
             continue
 
-        temp_path = os.path.join("uploads", f"analytics_{f.filename}")
+        temp_path = os.path.join("uploads", f"analytics_{os.path.basename(f.filename)}")
 
         with open(temp_path, "wb") as file_out:
             file_out.write(file_bytes)
@@ -72,8 +76,10 @@ async def analyse_upload(request: Request, file: List[UploadFile] = File(...)):
                 state.status = "Needs Sheet"
             else:
                 if sheet_names:
-                    state.selected_sheet = sheet_names[0]
-                rows, _ = load_tabular_rows(temp_path, state.selected_sheet)
+                    state.selected_sheets = [sheet_names[0]]
+                rows, _ = load_tabular_rows(
+                    temp_path, state.selected_sheets[0] if state.selected_sheets else ""
+                )
                 idx, headers = find_header_row_and_headers_from_rows(rows)
                 state.headers = [h for h in headers if h]
                 state.header_row_idx = idx
@@ -91,18 +97,19 @@ async def analyse_upload(request: Request, file: List[UploadFile] = File(...)):
         context={"request": request, "files": processed_states},
     )
 
+
 @router.post("/api/analyse/config/{file_id}", response_class=HTMLResponse)
 async def analyse_config(request: Request, file_id: str):
     state = analysis_db.get(file_id)
     if not state:
         return "File not found"
-        
+
     form_data = await request.form()
-    
+
     # Check if this is a sheet selection submit
-    if form_data.get("selected_sheet") and form_data.get("selected_sheet") in state.sheet_names:
-        state.selected_sheet = form_data.get("selected_sheet")
-        rows, _ = load_tabular_rows(state.saved_path, state.selected_sheet)
+    if form_data.getlist("selected_sheets"):
+        state.selected_sheets = form_data.getlist("selected_sheets")
+        rows, _ = load_tabular_rows(state.saved_path, state.selected_sheets[0])
         idx, headers = find_header_row_and_headers_from_rows(rows)
         state.headers = [h for h in headers if h]
         state.header_row_idx = idx
@@ -114,13 +121,32 @@ async def analyse_config(request: Request, file_id: str):
         state.config["currency_col"] = form_data.get("currency_col", "")
         state.config["flow_type_col"] = form_data.get("flow_type_col", "")
         state.config["inflow_indicator"] = form_data.get("inflow_indicator", "INFLOW")
-        state.config["outflow_indicator"] = form_data.get("outflow_indicator", "OUTFLOW")
+        state.config["outflow_indicator"] = form_data.get(
+            "outflow_indicator", "OUTFLOW"
+        )
         state.config["flow_filter"] = form_data.get("flow_filter", "All")
         state.config["limit"] = int(form_data.get("limit", 50))
         state.config["title"] = form_data.get("title", "DATA ANALYSIS REPORT")
         state.config["keep_columns"] = form_data.getlist("keep_columns")
         
-        if state.config["identity_col"] and state.config["metric_col"]:
+        # New: concatenation fields with ordering
+        state.config["concat_order"] = {}
+        for header in state.headers:
+            order_val = form_data.get(f"concat_order_{header}", "").strip()
+            if order_val:
+                state.config["concat_order"][header] = order_val
+        
+        state.config["concat_separator"] = form_data.get("concat_separator", " ")
+        # New: cumulative-by-nuban option and nuban column
+        state.config["cumulate_by_nuban"] = (
+            form_data.get("cumulate_by_nuban", "off") == "on"
+        )
+        state.config["nuban_col"] = form_data.get("nuban_col", "")
+
+        # Consider configured when metric is selected and either identity or concat cols are provided
+        if (
+            state.config["identity_col"] or state.config["concat_cols"]
+        ) and state.config["metric_col"]:
             state.status = "Configured"
 
     return templates.TemplateResponse(
@@ -128,17 +154,26 @@ async def analyse_config(request: Request, file_id: str):
         name="partials/analyse_file_card.html",
         context={"request": request, "file": state},
     )
-    
-@router.post("/api/analyse/components/config-form/{file_id}", response_class=HTMLResponse)
+
+
+@router.post(
+    "/api/analyse/components/config-form/{file_id}", response_class=HTMLResponse
+)
 async def get_config_form(request: Request, file_id: str):
     state = analysis_db.get(file_id)
     if not state:
         return "File not found"
-        
+
     preview_rows = []
-    if state.status != "Needs Sheet" and getattr(state, "header_row_idx", None) is not None:
+    if (
+        state.status != "Needs Sheet"
+        and getattr(state, "header_row_idx", None) is not None
+    ):
         try:
-            rows, _ = load_tabular_rows(state.saved_path, state.selected_sheet)
+            rows, _ = load_tabular_rows(
+                state.saved_path,
+                state.selected_sheets[0] if state.selected_sheets else "",
+            )
             preview_rows = rows[state.header_row_idx + 1 : state.header_row_idx + 4]
         except Exception:
             pass
@@ -149,6 +184,7 @@ async def get_config_form(request: Request, file_id: str):
         context={"request": request, "file": state, "preview_rows": preview_rows},
     )
 
+
 @router.post("/api/analyse/generate/{file_id}", response_class=HTMLResponse)
 async def analyse_generate(request: Request, file_id: str):
     state = analysis_db.get(file_id)
@@ -156,17 +192,21 @@ async def analyse_generate(request: Request, file_id: str):
         return "File not found"
 
     try:
-        report_path = process_analytics(state)
+        if state.config.get("cumulate_by_nuban"):
+            report_path = process_cumulative_transactions(state)
+        else:
+            report_path = process_analytics(state)
         state.report_path = report_path
         state.status = "Generated"
     except Exception as e:
         state.status = f"Failed ({str(e)})"
-        
+
     return templates.TemplateResponse(
         request=request,
         name="partials/analyse_file_card.html",
         context={"request": request, "file": state},
     )
+
 
 @router.delete("/api/analyse/delete/{file_id}")
 async def delete_analyse_file(file_id: str):
@@ -174,14 +214,15 @@ async def delete_analyse_file(file_id: str):
         del analysis_db[file_id]
     return Response(status_code=204)
 
+
 @router.get("/api/analyse/download/{filename}")
 async def download_analysis(filename: str):
     file_path = os.path.join("reports", filename)
     if os.path.exists(file_path):
         return FileResponse(
-            path=file_path, 
-            filename=filename, 
+            path=file_path,
+            filename=filename,
             media_type="text/markdown",
-            content_disposition_type="attachment"
+            content_disposition_type="attachment",
         )
     return HTMLResponse(f"File not found on disk at {file_path}", status_code=404)

@@ -1,0 +1,60 @@
+<form hx-post="/api/nuban/save-config/{{ file.id }}" hx-target="#nuban-file-{{ file.id }}" hx-swap="outerHTML" class="mapping-form">
+    <div class="mapping-grid">
+        <div class="mapping-row">
+            <label>Select Bank</label>
+            <select name="bank_code" class="fancy-select" required>
+                {% if banks %}
+                <option value="">-- Select Bank --</option>
+                {% for bank in banks %}
+                <option value="{{ bank.code }}" {% if file.selected_bank_code == bank.code %}selected{% endif %}>{{ bank.name }}</option>
+                {% endfor %}
+                {% else %}
+                <option value="">Error: Could not load banks</option>
+                {% endif %}
+            </select>
+        </div>
+        <div class="mapping-row">
+            <label>NUBAN Column</label>
+            <select name="nuban_col" class="fancy-select" required>
+                <option value="">-- Select NUBAN Column --</option>
+                {% for header in file.headers %}
+                <option value="{{ header }}" {% if file.mapped_nuban_col == header %}selected{% endif %}>{{ header }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="mapping-row">
+            <label>Target Column (for names)</label>
+            <input type="text" name="target_col" class="fancy-select" placeholder="e.g. RESOLVED_NAME" value="{{ file.mapped_target_col or 'ACCOUNT_NAME_RESOLVED' }}" required>
+        </div>
+    </div>
+
+    {% if preview_rows %}
+    <div class="preview-section" style="margin-top: 2rem;">
+        <h3 style="margin-bottom: 1rem; font-size: 1.1rem; color: #94a3b8;">Data Preview (First 3 rows)</h3>
+        <div class="table-container" style="overflow-x: auto; background: rgba(15, 23, 42, 0.3); border-radius: 0.5rem; border: 1px solid var(--glass-border);">
+            <table class="fancy-table">
+                <thead>
+                    <tr>
+                        {% for header in file.headers %}
+                        <th>{{ header }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in preview_rows %}
+                    <tr>
+                        {% for cell in row %}
+                        <td>{{ cell }}</td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Save Configuration</button>
+    </div>
+</form>

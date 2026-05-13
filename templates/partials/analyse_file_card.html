@@ -2,7 +2,7 @@
     <div class="file-header">
         <div class="file-info">
             <span class="file-name">{{ file.original_filename }}</span>
-            <span class="file-status status-{{ file.status | lower | replace(' ', '-') }}">{{ file.status }}</span>
+            <span class="file-status status-{{ file.status.split(' ')[0].lower() }}">{{ file.status }}</span>
         </div>
         <div class="file-actions">
             {% if file.status == 'Generated' %}
