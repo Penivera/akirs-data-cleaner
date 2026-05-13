@@ -37,8 +37,32 @@ if (Test-Path $activate) {
 }
 
 if (Test-Path "requirements.txt") {
-    Write-Output "Installing requirements..."
-    pip install -r requirements.txt
+    Write-Output "Installing requirements into $venvDir..."
+    $venvPython = Join-Path $venvDir "Scripts\python.exe"
+    if (-not (Test-Path $venvPython)) { $venvPython = Join-Path $venvDir "Scripts\python" }
+
+    # If pip not available, try ensurepip, otherwise download get-pip.py
+    $pipOk = $false
+    try { & $venvPython -m pip --version *> $null; $pipOk = $true } catch {}
+    if (-not $pipOk) {
+        Write-Output "pip not found in venv; attempting to bootstrap with ensurepip..."
+        $ensOk = $false
+        try { & $venvPython -m ensurepip --upgrade *> $null; $ensOk = $true } catch {}
+        if (-not $ensOk) {
+            Write-Output "ensurepip failed; trying to download get-pip.py"
+            $tmp = Join-Path $env:TEMP "get-pip.py"
+            try {
+                Invoke-WebRequest -UseBasicParsing -Uri https://bootstrap.pypa.io/get-pip.py -OutFile $tmp -ErrorAction Stop
+                & $venvPython $tmp
+            } catch {
+                Write-Error "Failed to bootstrap pip: $_"
+                exit 1
+            }
+        }
+    }
+
+    & $venvPython -m pip install --upgrade pip setuptools wheel
+    & $venvPython -m pip install -r requirements.txt
 }
 
 if (-not (Test-Path "logs")) { New-Item -ItemType Directory logs | Out-Null }
@@ -55,8 +79,10 @@ foreach ($p in $procs) {
 # Build argument string
 $uvicornArgs = "main:app --host 0.0.0.0 --port 8000"
 if ($Reload) { $uvicornArgs = "--reload $uvicornArgs" }
-# Launch via cmd.exe so we can redirect to a log file reliably
-$cmd = "python -m uvicorn $uvicornArgs > $log 2>&1"
+# Use the venv python to run uvicorn so we avoid relying on system python
+$venvPython = Join-Path $venvDir "Scripts\python.exe"
+if (-not (Test-Path $venvPython)) { $venvPython = Join-Path $venvDir "Scripts\python" }
+$cmd = "$venvPython -m uvicorn $uvicornArgs > $log 2>&1"
 $proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $cmd -WindowStyle Hidden -PassThru
 # Save PID
 $proc.Id | Out-File -FilePath $pidfile -Encoding ascii
