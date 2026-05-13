@@ -181,7 +181,8 @@ def extract_records(
 
         def get_val(row, source_field):
             if isinstance(source_field, list):
-                return " ".join(
+                separator = mapped_fields.get("__ACCOUNT_NAME_SEPARATOR") or " "
+                return separator.join(
                     value
                     for value in (get_val(row, field) for field in source_field[:3])
                     if value
