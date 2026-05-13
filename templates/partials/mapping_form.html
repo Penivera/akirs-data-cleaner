@@ -65,7 +65,7 @@
                 {% set raw_account_name = file.mapped_fields.get(target, '') %}
                 {% set account_name_fields = raw_account_name if raw_account_name is sequence and raw_account_name is not string else ([raw_account_name] if raw_account_name else []) %}
                 <details id="account-name-picker-{{ file.id }}" data-account-name-picker data-max-selected="3" style="position: relative;">
-                    <summary class="fancy-select" style="display: flex; align-items: center; cursor: pointer; list-style: none; border-color: {% if account_name_fields %}#4CAF50{% else %}var(--glass-border){% endif %};">
+                    <summary class="fancy-select" style="display: flex; align-items: center; cursor: pointer; list-style: none; border-color: {{ '#4CAF50' if account_name_fields else 'var(--glass-border)' }};">
                         <span data-account-name-label style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">-- Select Column --</span>
                     </summary>
                     <div data-account-name-values>
