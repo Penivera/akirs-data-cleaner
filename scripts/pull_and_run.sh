@@ -82,5 +82,14 @@ NEWPID=$!
 echo $NEWPID > "$PIDFILE"
 echo "Started uvicorn with PID $NEWPID"
 echo "Logs: $REPO_ROOT/logs/server.log"
-
+# Open default browser to the app URL
+if command -v xdg-open > /dev/null 2>&1; then
+  xdg-open "http://localhost:8000"
+elif command -v open > /dev/null 2>&1; then
+  open "http://localhost:8000"
+elif command -v start > /dev/null 2>&1; then
+  start "" "http://localhost:8000"
+else
+  echo "Please open http://localhost:8000 in your browser."
+fi
 echo "Done."

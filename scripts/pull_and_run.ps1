@@ -119,3 +119,5 @@ $proc.Id | Out-File -FilePath $pidfile -Encoding ascii
 
 Write-Output "Started process id: $($proc.Id)"
 Write-Output "Logs: $log"
+try { Start-Process "http://localhost:8000" } catch { Write-Output "Please open http://localhost:8000 in your browser manually." }
+Write-Output "Opened browser to http://localhost:8000. If it did not open, please navigate manually."
