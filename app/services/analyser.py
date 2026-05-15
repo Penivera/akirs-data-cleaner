@@ -45,8 +45,7 @@ def generate_markdown_report(
     keep_columns = config.get("keep_columns", [])
     title = config.get("title", "DATA ANALYSIS REPORT").upper()
 
-    # New: support for concatenating multiple columns into the identity value
-    concat_cols = config.get("concat_cols") or []
+    concat_order = config.get("concat_order")
     concat_separator = config.get("concat_separator", " ")
 
     flow_type_col = config.get("flow_type_col")
@@ -54,7 +53,7 @@ def generate_markdown_report(
     outflow_indicator = str(config.get("outflow_indicator", "OUTFLOW")).strip().upper()
     flow_filter = config.get("flow_filter", "All")
 
-    if (not identity_col or not metric_col) and not concat_cols:
+    if (not identity_col or not metric_col) and not concat_order:
         raise ValueError(
             "Identity (or concat columns) and Metric columns must be selected."
         )
@@ -63,15 +62,12 @@ def generate_markdown_report(
     headers = [str(h).strip() if h else "" for h in rows[header_row_idx]]
     header_map = {h: i for i, h in enumerate(headers) if h}
 
-    # Concatenation logic now handled dynamically during row processing using config['concat_order']
-    pass
-
     id_idx = header_map.get(identity_col) if identity_col else None
     met_idx = header_map.get(metric_col) if metric_col else None
     curr_idx = header_map.get(currency_col) if currency_col else None
     flow_idx = header_map.get(flow_type_col) if flow_type_col else None
 
-    if (id_idx is None and not concat_indices) or met_idx is None:
+    if (id_idx is None and not concat_order) or met_idx is None:
         raise ValueError("Selected columns not found in dataset")
 
     keep_indices = []

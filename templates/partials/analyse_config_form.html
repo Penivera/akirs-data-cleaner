@@ -1,5 +1,5 @@
 <form hx-post="/api/analyse/config/{{ file.id }}" hx-target="#analyse-file-{{ file.id }}" hx-swap="outerHTML" class="mapping-grid glass-panel" style="margin-top: 15px;">
-    {% if file.status == 'Needs Sheet' %}
+    {% if 'Needs Sheet' in file.status %}
         <div class="mapping-row" style="grid-column: 1 / -1;">
             <label>TARGET SHEETS (Select at least one)</label>
             <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 10px; background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px;">
@@ -50,7 +50,7 @@
         
         <div class="mapping-row">
             <label>Who are we ranking? <br><small style="color: #64748b; font-size: 0.75rem;">(e.g., Account Name, Branch, or Taxpayer ID)</small></label>
-            <select name="identity_col" class="fancy-select" required>
+            <select name="identity_col" class="fancy-select">
                 <option value="">-- Select Identity Column --</option>
                 {% for h in file.headers %}
                 <option value="{{ h }}" {% if file.config.get('identity_col') == h %}selected{% endif %}>{{ h }}</option>
@@ -146,6 +146,27 @@
                         value="{{ file.config.get('concat_separator', ' ') }}"
                         style="width: 100%; padding: 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--glass-border); border-radius: 8px; color: #f8fafc; font-size: 0.95rem; box-sizing: border-box; outline: none;" />
                 </div>
+            </div>
+        </div>
+        
+        <!-- NUBAN Cumulation Settings -->
+        <div class="mapping-row" style="grid-column: 1 / -1; margin-top: 10px; border-top: 1px solid var(--glass-border); padding-top: 20px;">
+            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; color: #f8fafc; font-weight: 600;">
+                <input type="checkbox" name="cumulate_by_nuban" {% if file.config.get('cumulate_by_nuban') %}checked{% endif %} style="width: 18px; height: 18px; accent-color: var(--primary);">
+                Enable Cumulative Analysis by NUBAN
+            </label>
+            <p style="color: #94a3b8; font-size: 0.85rem; margin-left: 28px; margin-bottom: 10px;">
+                If enabled, we will group transactions by NUBAN instead of just the identity column. Useful for cleaning bank statements with inconsistent names.
+            </p>
+            
+            <div style="margin-left: 28px; max-width: 400px;">
+                <label style="font-size: 0.8rem; color: #cbd5e1;">NUBAN Column (for cumulation)</label>
+                <select name="nuban_col" class="fancy-select" style="width: 100%; margin-top: 5px;">
+                    <option value="">-- Select NUBAN Column --</option>
+                    {% for h in file.headers %}
+                    <option value="{{ h }}" {% if file.config.get('nuban_col') == h %}selected{% endif %}>{{ h }}</option>
+                    {% endfor %}
+                </select>
             </div>
         </div>
         

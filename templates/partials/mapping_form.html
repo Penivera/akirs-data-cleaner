@@ -57,50 +57,91 @@
                 <small style="color: #64748b; font-size: 0.75rem;">Hold CMD/CTRL to select multiple. Only rows matching these numeric codes will be exported.</small>
             </div>
             {% endif %}
-
-            <!-- Account Name Concatenation Configuration -->
-            <div class="mapping-row" style="grid-column: 1 / -1;">
-                <label style="color: #cbd5e1; font-size: 0.95rem; margin-bottom: 12px; display: block; font-weight: 600;">ACCOUNT NAME CONCATENATION</label>
-                <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 10px; border: 1px solid var(--glass-border);">
-                    <p style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 15px;">Specify the order to concatenate columns (assign a number to each column):</p>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px;">
-                        {% for header in file.headers %}
-                        <div style="display: flex; align-items: center; gap: 12px; background: rgba(255,255,255,0.03); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(148,163,184,0.15); transition: border-color 0.2s;">
-                            <input type="text" 
-                                name="account_name_concat_order_{{ header }}" 
-                                placeholder="Order" 
-                                maxlength="2"
-                                value="{% if file.account_name_concat_order and header in file.account_name_concat_order %}{{ file.account_name_concat_order[header] }}{% endif %}"
-                                style="width: 55px; padding: 6px; background: rgba(0,0,0,0.4); border: 1px solid var(--primary); border-radius: 6px; color: #fff; text-align: center; font-weight: 700; font-size: 0.9rem;" />
-                            <span style="flex: 1; color: #f8fafc; font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ header }}</span>
-                        </div>
-                        {% endfor %}
-                    </div>
-                    <div style="margin-top: 12px; display: flex; align-items: center; gap: 6px;">
-                         <span style="color: var(--primary); font-size: 1rem;">ℹ️</span>
-                         <small style="color: #64748b; font-size: 0.75rem;">
-                            Enter numbers (1, 2, 3, etc.) to specify order. Leave blank to skip.
-                        </small>
-                    </div>
-                    
-                    <!-- Separator Selection -->
-                    <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid rgba(148,163,184,0.2);">
-                        <label style="color: #cbd5e1; font-size: 0.9rem; margin-bottom: 8px; display: block; font-weight: 600;">Separator between names:</label>
-                        <input type="text" 
-                            name="account_name_concat_separator" 
-                            placeholder="Space, comma, dash, etc." 
-                            value="{{ file.account_name_concat_separator if file.account_name_concat_separator else ' ' }}"
-                            style="width: 100%; padding: 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--glass-border); border-radius: 8px; color: #f8fafc; font-size: 0.95rem; box-sizing: border-box; outline: none;" 
-                            onfocus="this.style.borderColor='var(--primary)'" 
-                            onblur="this.style.borderColor='var(--glass-border)'"/>
-                        <small style="color: #64748b; font-size: 0.75rem; margin-top: 6px; display: block;">Common examples: <code>[space]</code>, <code>,</code>, <code>-</code>, <code>|</code>, <code>AND</code></small>
-                    </div>
-                </div>
-            </div>
             
             {% for target in targets %}
             <div class="mapping-row">
                 <label>{{ target }}</label>
+                {% if target == 'ACCOUNT_NAME' %}
+                {% set raw_account_name = file.mapped_fields.get(target, '') %}
+                {% set account_name_fields = raw_account_name if raw_account_name is sequence and raw_account_name is not string else ([raw_account_name] if raw_account_name else []) %}
+                {% set account_name_separator = file.mapped_fields.get('__ACCOUNT_NAME_SEPARATOR', ' ') %}
+                <details id="account-name-picker-{{ file.id }}" data-account-name-picker data-max-selected="3" style="position: relative;">
+                    <summary class="fancy-select" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; list-style: none; border-color: {{ '#4CAF50' if account_name_fields else 'var(--glass-border)' }};">
+                        <span data-account-name-label style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">-- Select Column --</span>
+                        <span style="margin-left: auto; font-weight: 900; font-size: larger; ;color: #cbd5e1;">⌄</span>
+                    </summary>
+                    <div data-account-name-values>
+                        {% for selected_header in account_name_fields %}
+                        <input type="hidden" name="ACCOUNT_NAME" value="{{ selected_header }}">
+                        {% endfor %}
+                    </div>
+                    <div style="position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 20; border: 1px solid var(--glass-border); border-radius: 8px; padding: 10px; background: #0f172a; max-height: 180px; overflow-y: auto; box-shadow: 0 18px 45px rgba(0,0,0,0.35);">
+                        <input type="text" name="ACCOUNT_NAME_SEPARATOR" class="fancy-select" value="{{ account_name_separator }}" placeholder="Separator" style="width: 100%; margin-bottom: 10px;">
+                        {% for header in file.headers %}
+                        <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: #f8fafc; font-size: 13px; font-weight: normal;">
+                            <input type="checkbox" value="{{ header }}" {% if header in account_name_fields %}checked{% endif %} style="accent-color: var(--primary);">
+                            <span data-order style="display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 999px; border: 1px solid var(--glass-border); color: #cbd5e1; font-size: 11px;"></span>
+                            <span>{{ header }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                </details>
+                <script>
+                    (() => {
+                        const picker = document.getElementById("account-name-picker-{{ file.id }}");
+                        if (!picker) return;
+
+                        const maxSelected = Number(picker.dataset.maxSelected || 3);
+                        const valueHolder = picker.querySelector("[data-account-name-values]");
+                        const label = picker.querySelector("[data-account-name-label]");
+                        const checkboxes = Array.from(picker.querySelectorAll('input[type="checkbox"]'));
+                        let selected = checkboxes.filter(cb => cb.checked).map(cb => cb.value).slice(0, maxSelected);
+
+                        const render = () => {
+                            valueHolder.innerHTML = "";
+                            selected.forEach(value => {
+                                const input = document.createElement("input");
+                                input.type = "hidden";
+                                input.name = "ACCOUNT_NAME";
+                                input.value = value;
+                                valueHolder.appendChild(input);
+                            });
+
+                            checkboxes.forEach(cb => {
+                                const order = selected.indexOf(cb.value);
+                                const badge = cb.closest("label").querySelector("[data-order]");
+                                cb.checked = order !== -1;
+                                badge.textContent = order === -1 ? "" : String(order + 1);
+                            });
+
+                            label.textContent = selected.length ? selected.join(" + ") : "-- Select Column --";
+                        };
+
+                        checkboxes.forEach(cb => {
+                            cb.addEventListener("change", () => {
+                                if (cb.checked) {
+                                    if (!selected.includes(cb.value) && selected.length < maxSelected) {
+                                        selected.push(cb.value);
+                                    } else if (selected.length >= maxSelected) {
+                                        cb.checked = false;
+                                    }
+                                } else {
+                                    selected = selected.filter(value => value !== cb.value);
+                                }
+                                render();
+                            });
+                        });
+
+                        document.addEventListener("click", event => {
+                            if (!picker.contains(event.target)) {
+                                picker.open = false;
+                            }
+                        });
+
+                        render();
+                    })();
+                </script>
+                {% else %}
                 <select name="{{ target }}" class="fancy-select" {% if file.mapped_fields[target] %}style="border-color: #4CAF50;"{% endif %} required>
                     <option value="">-- Select Column --</option>
                     <option value="__NA__" {% if file.mapped_fields[target] == '__NA__' %}selected{% endif %}>N/A (Column Missing)</option>
@@ -110,6 +151,7 @@
                     </option>
                     {% endfor %}
                 </select>
+                {% endif %}
             </div>
             {% endfor %}
         {% endif %}

@@ -99,7 +99,11 @@ class AnalysisState:
             "flow_filter": "All",
             "limit": 50,
             "title": "DATA ANALYSIS REPORT",
-            "keep_columns": []
+            "keep_columns": [],
+            "concat_order": {},
+            "concat_separator": " ",
+            "cumulate_by_nuban": False,
+            "nuban_col": ""
         }
         self.report_path = ""
         self.upload_hash = ""
