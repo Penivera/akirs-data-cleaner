@@ -8,7 +8,7 @@
     <div class="preset-selector">
         <button type="button" class="preset-tab {% if file.preset_name == 'retail' %}active{% endif %}"
             hx-post="/api/components/mapping/{{ file.id }}?preset=retail" hx-target="closest form"
-            hx-swap="outerHTML">Retail Migration</button>
+            hx-swap="outerHTML">Bank Data</button>
         <button type="button" class="preset-tab {% if file.preset_name == 'intelligence' %}active{% endif %}"
             hx-post="/api/components/mapping/{{ file.id }}?preset=intelligence" hx-target="closest form"
             hx-swap="outerHTML">Intelligence Gathering</button>
