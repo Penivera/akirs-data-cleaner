@@ -9,7 +9,8 @@
                 <line x1="12" y1="3" x2="12" y2="15"></line>
             </svg>
             <h3>Upload Datasets for Ingestion</h3>
-            <p style="margin-bottom: 1.5rem;">Click or drag and drop Excel (.xlsx, .xls) or CSV files here to initiate health auditing and mapping</p>
+            <p style="margin-bottom: 1.5rem;">Click or drag and drop Excel (.xlsx, .xls) or CSV files here to initiate
+                health auditing and mapping</p>
             <label for="fileElem" class="btn btn-primary upload-pick-btn">Browse Local Files</label>
             <input type="file" id="fileElem" name="file" multiple accept=".xlsx, .xls, .csv">
         </div>
@@ -17,7 +18,9 @@
 </section>
 
 <section class="file-list-container" style="margin-top: 2.5rem;">
-    <h2 style="font-family: var(--font-heading); font-size: 1.5rem; font-weight: 700; color: var(--primary); margin-bottom: 1.25rem;">Active Queue</h2>
+    <h2
+        style="font-family: var(--font-heading); font-size: 1.5rem; font-weight: 700; color: var(--primary); margin-bottom: 1.25rem;">
+        Active Queue</h2>
     <div id="file-list" class="file-list">
         {% for file in files %}
         {% include 'partials/file_card.html' %}

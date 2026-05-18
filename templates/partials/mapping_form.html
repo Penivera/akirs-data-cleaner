@@ -1,46 +1,65 @@
-<form class="mapping-form" hx-post="/api/mapping/{{ file.id }}" hx-target="#file-{{ file.id }}" hx-swap="outerHTML" style="background: white; border: 1px solid #e2e8f0; border-radius: 0.75rem; padding: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); margin-top: 1.5rem;">
-    <h3 style="font-family: var(--font-heading); font-size: 1.5rem; font-weight: 700; color: var(--primary); margin-bottom: 1.5rem; border-bottom: 2px solid var(--primary-light); padding-bottom: 0.5rem;">Configure Ingestion & Mapping</h3>
-    
+<form class="mapping-form" hx-post="/api/mapping/{{ file.id }}" hx-target="#file-{{ file.id }}" hx-swap="outerHTML"
+    style="background: white; border: 1px solid #e2e8f0; border-radius: 0.75rem; padding: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); margin-top: 1.5rem;">
+    <h3
+        style="font-family: var(--font-heading); font-size: 1.5rem; font-weight: 700; color: var(--primary); margin-bottom: 1.5rem; border-bottom: 2px solid var(--primary-light); padding-bottom: 0.5rem;">
+        Configure Ingestion & Mapping</h3>
+
     <!-- Segmented Preset Selection -->
     <div class="preset-selector">
-        <button type="button" class="preset-tab {% if file.preset_name == 'retail' %}active{% endif %}" hx-post="/api/components/mapping/{{ file.id }}?preset=retail" hx-target="closest form" hx-swap="outerHTML">Retail Migration</button>
-        <button type="button" class="preset-tab {% if file.preset_name == 'intelligence' %}active{% endif %}" hx-post="/api/components/mapping/{{ file.id }}?preset=intelligence" hx-target="closest form" hx-swap="outerHTML">Intelligence Gathering</button>
-        <button type="button" class="preset-tab {% if file.preset_name == 'custom' %}active{% endif %}" hx-post="/api/components/mapping/{{ file.id }}?preset=custom" hx-target="closest form" hx-swap="outerHTML">Custom Configuration</button>
+        <button type="button" class="preset-tab {% if file.preset_name == 'retail' %}active{% endif %}"
+            hx-post="/api/components/mapping/{{ file.id }}?preset=retail" hx-target="closest form"
+            hx-swap="outerHTML">Retail Migration</button>
+        <button type="button" class="preset-tab {% if file.preset_name == 'intelligence' %}active{% endif %}"
+            hx-post="/api/components/mapping/{{ file.id }}?preset=intelligence" hx-target="closest form"
+            hx-swap="outerHTML">Intelligence Gathering</button>
+        <button type="button" class="preset-tab {% if file.preset_name == 'custom' %}active{% endif %}"
+            hx-post="/api/components/mapping/{{ file.id }}?preset=custom" hx-target="closest form"
+            hx-swap="outerHTML">Custom Configuration</button>
     </div>
     <input type="hidden" name="preset_name" value="{{ file.preset_name }}">
-    
+
     <div class="mapping-grid">
-        
+
         {% if 'Needs Sheet' in file.status %}
         <div class="mapping-row" style="grid-column: 1 / -1;">
             <label>TARGET WORKSHEETS (Select at least one)</label>
-            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 10px; background: var(--bg-color); padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0;">
-                <label style="display: flex; align-items: center; gap: 8px; font-weight: bold; color: var(--primary); grid-column: 1 / -1; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; margin-bottom: 5px;">
-                    <input type="checkbox" onchange="const cbs = this.closest('.mapping-row').querySelectorAll('.sheet-cb'); cbs.forEach(cb => cb.checked = this.checked);" style="accent-color: var(--primary);">
+            <div
+                style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 10px; background: var(--bg-color); padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                <label
+                    style="display: flex; align-items: center; gap: 8px; font-weight: bold; color: var(--primary); grid-column: 1 / -1; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; margin-bottom: 5px;">
+                    <input type="checkbox"
+                        onchange="const cbs = this.closest('.mapping-row').querySelectorAll('.sheet-cb'); cbs.forEach(cb => cb.checked = this.checked);"
+                        style="accent-color: var(--primary);">
                     Select All Sheets
                 </label>
                 {% for sheet in file.sheet_names %}
-                <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; font-size: 13px; color: var(--text-color);">
-                    <input type="checkbox" name="selected_sheets" value="{{ sheet }}" class="sheet-cb" {% if sheet in file.selected_sheets %}checked{% endif %} style="accent-color: var(--primary);">
+                <label
+                    style="display: flex; align-items: center; gap: 8px; font-weight: normal; font-size: 13px; color: var(--text-color);">
+                    <input type="checkbox" name="selected_sheets" value="{{ sheet }}" class="sheet-cb" {% if sheet in
+                        file.selected_sheets %}checked{% endif %} style="accent-color: var(--primary);">
                     {{ sheet }}
                 </label>
                 {% endfor %}
             </div>
-            <small style="color: #64748b; font-size: 0.75rem; margin-top: 5px; display: block;">This workbook contains multiple sheets. Select which sheets to ingest and process concurrently.</small>
+            <small style="color: #64748b; font-size: 0.75rem; margin-top: 5px; display: block;">This workbook contains
+                multiple sheets. Select which sheets to ingest and process concurrently.</small>
         </div>
         {% else %}
-            
-            <!-- Output naming pattern and custom setup -->
-            <div class="mapping-row" style="grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.25rem; background: var(--bg-color); padding: 1.25rem; border-radius: 0.5rem; border: 1px solid #e2e8f0; margin-bottom: 1rem;">
-                <div>
-                    <label>Output Filename Pattern</label>
-                    <input type="text" name="output_pattern" class="fancy-select" value="{{ file.output_pattern }}" placeholder="{filename}" style="margin-top: 0.25rem;" required>
-                    <small style="color: #64748b; font-size: 0.75rem; margin-top: 2px; display: block;">Use <code>{filename}</code> as a placeholder for the original file name.</small>
-                </div>
-                
-                <div>
-                    <label>Deduplication & Identity Strategy</label>
-                    <select class="fancy-select" style="margin-top: 0.25rem;" onchange="
+
+        <!-- Output naming pattern and custom setup -->
+        <div class="mapping-row"
+            style="grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.25rem; background: var(--bg-color); padding: 1.25rem; border-radius: 0.5rem; border: 1px solid #e2e8f0; margin-bottom: 1rem;">
+            <div>
+                <label>Output Filename Pattern</label>
+                <input type="text" name="output_pattern" class="fancy-select" value="{{ file.output_pattern }}"
+                    placeholder="{filename}" style="margin-top: 0.25rem;" required>
+                <small style="color: #64748b; font-size: 0.75rem; margin-top: 2px; display: block;">Use
+                    <code>{filename}</code> as a placeholder for the original file name.</small>
+            </div>
+
+            <div>
+                <label>Deduplication & Identity Strategy</label>
+                <select class="fancy-select" style="margin-top: 0.25rem;" onchange="
                         const val = this.value;
                         const dl = document.getElementById('duplicate-logic-field');
                         const pkf = document.getElementById('primary-key-field');
@@ -52,174 +71,205 @@
                             pkf.value = val;
                         }
                     ">
-                        <option value="weirdly_similar" {% if file.duplicate_logic == 'weirdly_similar' %}selected{% endif %}>Fuzzy Deduplication (Whole-Row Similarity)</option>
-                        {% for target in targets %}
-                        <option value="{{ target }}" {% if file.duplicate_logic == 'primary_key' and file.primary_key_field == target %}selected{% endif %}>
-                            Key-Based Deduplication (via mapped {{ target }})
-                        </option>
-                        {% endfor %}
-                    </select>
-                    <input type="hidden" name="duplicate_logic" id="duplicate-logic-field" value="{{ file.duplicate_logic }}">
-                    <input type="hidden" name="primary_key_field" id="primary-key-field" value="{{ file.primary_key_field }}">
-                    <small style="color: #64748b; font-size: 0.75rem; margin-top: 2px; display: block;">Group exact key matches, or run Sorted Neighborhood fuzzy similarity checks on absent keys.</small>
-                </div>
-            </div>
-
-            {% if file.preset_name == 'custom' %}
-            <div class="mapping-row" style="grid-column: 1 / -1; background: #fffbeb; padding: 1.25rem; border-radius: 0.5rem; border: 1px solid #fef3c7; margin-bottom: 1rem;">
-                <label style="color: var(--accent); font-weight: 700;">Custom Mapping Target Fields</label>
-                <input type="text" name="custom_fields" class="fancy-select" value="{{ targets|join(', ') }}" 
-                       hx-post="/api/components/mapping/{{ file.id }}" hx-trigger="keyup changed delay:800ms" hx-target="closest form" hx-swap="outerHTML"
-                       style="margin-top: 0.25rem; border-color: var(--accent);" required>
-                <small style="color: #b45309; font-size: 0.75rem; margin-top: 2px; display: block;">Type comma-separated target header labels (e.g. <code>NAME, ADDRESS, PHONE</code>) to dynamically rebuild selectors below.</small>
-            </div>
-            {% endif %}
-
-            {% if preview_rows %}
-            <div style="grid-column: 1 / -1; margin-bottom: 1.5rem;">
-                <label style="color: #475569; font-weight: 700; font-size: 0.875rem; margin-bottom: 8px; display: block;">Data Source Preview (First {{ preview_rows|length }} rows)</label>
-                <div class="table-container" style="margin: 0;">
-                    <table class="fancy-table" style="margin-bottom: 0;">
-                        <thead>
-                            <tr>
-                                {% for h in file.headers %}
-                                <th>{{ h }}</th>
-                                {% endfor %}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for row in preview_rows %}
-                            <tr>
-                                {% for i in range(file.headers|length) %}
-                                <td>{{ row[i] if i < row|length and row[i] is not none else '' }}</td>
-                                {% endfor %}
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            {% endif %}
-            
-            {% if file.available_branches %}
-            <div class="mapping-row" style="grid-column: 1 / -1; margin-bottom: 1rem;">
-                <label>TARGET BRANCHES (Filter Ingestion)</label>
-                <select name="selected_branches" class="fancy-select" multiple style="height: 100px;">
-                    {% for branch in file.available_branches %}
-                    <option value="{{ branch }}" {% if branch in file.selected_branches %}selected{% endif %}>{{ branch }}</option>
-                    {% endfor %}
-                </select>
-                <small style="color: #64748b; font-size: 0.75rem; margin-top: 3px; display: block;">Hold Ctrl / Cmd to select multiple. If configured, only rows matching these branch codes are processed.</small>
-            </div>
-            {% endif %}
-            
-            <!-- Dynamic Column Mappers -->
-            <div style="grid-column: 1 / -1; font-weight: 700; font-size: 0.875rem; color: #475569; margin-top: 0.5rem; margin-bottom: -0.5rem;">Column Mappings</div>
-            {% for target in targets %}
-            <div class="mapping-row" style="background: #fafafa; padding: 0.75rem; border-radius: 0.5rem; border: 1px solid #f1f5f9;">
-                <label style="display: flex; justify-content: space-between; align-items: center;">
-                    <span>{{ target }}</span>
-                    {% if file.mapped_fields[target] and file.mapped_fields[target] != '__NA__' %}
-                        <span style="color: var(--success); font-size: 0.75rem; font-weight: bold;">✓ Auto-mapped</span>
-                    {% endif %}
-                </label>
-                {% if target == 'ACCOUNT_NAME' %}
-                {% set raw_account_name = file.mapped_fields.get(target, '') %}
-                {% set account_name_fields = raw_account_name if raw_account_name is sequence and raw_account_name is not string else ([raw_account_name] if raw_account_name else []) %}
-                {% set account_name_separator = file.mapped_fields.get('__ACCOUNT_NAME_SEPARATOR', ' ') %}
-                <details id="account-name-picker-{{ file.id }}" data-account-name-picker data-max-selected="3" style="position: relative;">
-                    <summary class="fancy-select" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; list-style: none; border-color: {{ 'var(--success)' if account_name_fields else '#cbd5e1' }};">
-                        <span data-account-name-label style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">-- Select Column --</span>
-                        <span style="margin-left: auto; font-weight: 900; font-size: larger; color: #64748b;">⌄</span>
-                    </summary>
-                    <div data-account-name-values>
-                        {% for selected_header in account_name_fields %}
-                        <input type="hidden" name="ACCOUNT_NAME" value="{{ selected_header }}">
-                        {% endfor %}
-                    </div>
-                    <div style="position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 20; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; background: white; max-height: 180px; overflow-y: auto; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);">
-                        <input type="text" name="account_name_concat_separator" class="fancy-select" value="{{ file.account_name_concat_separator }}" placeholder="Separator" style="width: 100%; margin-bottom: 10px;">
-                        {% for header in file.headers %}
-                        <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--text-color); font-size: 13px; font-weight: normal; cursor: pointer;">
-                            <input type="checkbox" value="{{ header }}" {% if header in account_name_fields %}checked{% endif %} style="accent-color: var(--primary);">
-                            <span data-order style="display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 999px; border: 1px solid #cbd5e1; color: var(--text-color); font-size: 11px;"></span>
-                            <span>{{ header }}</span>
-                        </label>
-                        {% endfor %}
-                    </div>
-                </details>
-                <script>
-                    (() => {
-                        const picker = document.getElementById("account-name-picker-{{ file.id }}");
-                        if (!picker) return;
-
-                        const maxSelected = Number(picker.dataset.maxSelected || 3);
-                        const valueHolder = picker.querySelector("[data-account-name-values]");
-                        const label = picker.querySelector("[data-account-name-label]");
-                        const checkboxes = Array.from(picker.querySelectorAll('input[type="checkbox"]'));
-                        let selected = checkboxes.filter(cb => cb.checked).map(cb => cb.value).slice(0, maxSelected);
-
-                        const render = () => {
-                            valueHolder.innerHTML = "";
-                            selected.forEach(value => {
-                                const input = document.createElement("input");
-                                input.type = "hidden";
-                                input.name = "ACCOUNT_NAME";
-                                input.value = value;
-                                valueHolder.appendChild(input);
-                            });
-
-                            checkboxes.forEach(cb => {
-                                const order = selected.indexOf(cb.value);
-                                const badge = cb.closest("label").querySelector("[data-order]");
-                                cb.checked = order !== -1;
-                                badge.textContent = order === -1 ? "" : String(order + 1);
-                            });
-
-                            label.textContent = selected.length ? selected.join(" + ") : "-- Select Column --";
-                        };
-
-                        checkboxes.forEach(cb => {
-                            cb.addEventListener("change", () => {
-                                if (cb.checked) {
-                                    if (!selected.includes(cb.value) && selected.length < maxSelected) {
-                                        selected.push(cb.value);
-                                    } else if (selected.length >= maxSelected) {
-                                        cb.checked = false;
-                                    }
-                                } else {
-                                    selected = selected.filter(value => value !== cb.value);
-                                }
-                                render();
-                            });
-                        });
-
-                        document.addEventListener("click", event => {
-                            if (!picker.contains(event.target)) {
-                                picker.open = false;
-                            }
-                        });
-
-                        render();
-                    })();
-                </script>
-                {% else %}
-                <select name="{{ target }}" class="fancy-select" {% if file.mapped_fields[target] and file.mapped_fields[target] != '__NA__' %}style="border-color: var(--success); background: #f0fdf4;"{% endif %} required>
-                    <option value="">-- Select Column --</option>
-                    <option value="__NA__" {% if file.mapped_fields[target] == '__NA__' %}selected{% endif %}>N/A (Column Missing)</option>
-                    {% for header in file.headers %}
-                    <option value="{{ header }}" {% if file.mapped_fields[target] == header %}selected{% endif %}>
-                        {{ header }}
+                    <option value="weirdly_similar" {% if file.duplicate_logic=='weirdly_similar' %}selected{% endif %}>
+                        Fuzzy Deduplication (Whole-Row Similarity)</option>
+                    {% for target in targets %}
+                    <option value="{{ target }}" {% if file.duplicate_logic=='primary_key' and
+                        file.primary_key_field==target %}selected{% endif %}>
+                        Key-Based Deduplication (via mapped {{ target }})
                     </option>
                     {% endfor %}
                 </select>
-                {% endif %}
+                <input type="hidden" name="duplicate_logic" id="duplicate-logic-field"
+                    value="{{ file.duplicate_logic }}">
+                <input type="hidden" name="primary_key_field" id="primary-key-field"
+                    value="{{ file.primary_key_field }}">
+                <small style="color: #64748b; font-size: 0.75rem; margin-top: 2px; display: block;">Group exact key
+                    matches, or run Sorted Neighborhood fuzzy similarity checks on absent keys.</small>
             </div>
-            {% endfor %}
+        </div>
+
+        {% if file.preset_name == 'custom' %}
+        <div class="mapping-row"
+            style="grid-column: 1 / -1; background: #fffbeb; padding: 1.25rem; border-radius: 0.5rem; border: 1px solid #fef3c7; margin-bottom: 1rem;">
+            <label style="color: var(--accent); font-weight: 700;">Custom Mapping Target Fields</label>
+            <input type="text" name="custom_fields" class="fancy-select" value="{{ targets|join(', ') }}"
+                hx-post="/api/components/mapping/{{ file.id }}" hx-trigger="keyup changed delay:800ms"
+                hx-target="closest form" hx-swap="outerHTML" style="margin-top: 0.25rem; border-color: var(--accent);"
+                required>
+            <small style="color: #b45309; font-size: 0.75rem; margin-top: 2px; display: block;">Type comma-separated
+                target header labels (e.g. <code>NAME, ADDRESS, PHONE</code>) to dynamically rebuild selectors
+                below.</small>
+        </div>
         {% endif %}
-        
+
+        {% if preview_rows %}
+        <div style="grid-column: 1 / -1; margin-bottom: 1.5rem;">
+            <label
+                style="color: #475569; font-weight: 700; font-size: 0.875rem; margin-bottom: 8px; display: block;">Data
+                Source Preview (First {{ preview_rows|length }} rows)</label>
+            <div class="table-container" style="margin: 0;">
+                <table class="fancy-table" style="margin-bottom: 0;">
+                    <thead>
+                        <tr>
+                            {% for h in file.headers %}
+                            <th>{{ h }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in preview_rows %}
+                        <tr>
+                            {% for i in range(file.headers|length) %}
+                            <td>{{ row[i] if i < row|length and row[i] is not none else '' }}</td>
+                                    {% endfor %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if file.available_branches %}
+        <div class="mapping-row" style="grid-column: 1 / -1; margin-bottom: 1rem;">
+            <label>TARGET BRANCHES (Filter Ingestion)</label>
+            <select name="selected_branches" class="fancy-select" multiple style="height: 100px;">
+                {% for branch in file.available_branches %}
+                <option value="{{ branch }}" {% if branch in file.selected_branches %}selected{% endif %}>{{ branch }}
+                </option>
+                {% endfor %}
+            </select>
+            <small style="color: #64748b; font-size: 0.75rem; margin-top: 3px; display: block;">Hold Ctrl / Cmd to
+                select multiple. If configured, only rows matching these branch codes are processed.</small>
+        </div>
+        {% endif %}
+
+        <!-- Dynamic Column Mappers -->
+        <div
+            style="grid-column: 1 / -1; font-weight: 700; font-size: 0.875rem; color: #475569; margin-top: 0.5rem; margin-bottom: -0.5rem;">
+            Column Mappings</div>
+        {% for target in targets %}
+        <div class="mapping-row"
+            style="background: #fafafa; padding: 0.75rem; border-radius: 0.5rem; border: 1px solid #f1f5f9;">
+            <label style="display: flex; justify-content: space-between; align-items: center;">
+                <span>{{ target }}</span>
+                {% if file.mapped_fields[target] and file.mapped_fields[target] != '__NA__' %}
+                <span style="color: var(--success); font-size: 0.75rem; font-weight: bold;">✓ Auto-mapped</span>
+                {% endif %}
+            </label>
+            {% if target == 'ACCOUNT_NAME' %}
+            {% set raw_account_name = file.mapped_fields.get(target, '') %}
+            {% set account_name_fields = raw_account_name if raw_account_name is sequence and raw_account_name is not
+            string else ([raw_account_name] if raw_account_name else []) %}
+            {% set account_name_separator = file.mapped_fields.get('__ACCOUNT_NAME_SEPARATOR', ' ') %}
+            <details id="account-name-picker-{{ file.id }}" data-account-name-picker data-max-selected="3"
+                style="position: relative;">
+                <summary class="fancy-select"
+                    style="display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; list-style: none; border-color: {{ 'var(--success)' if account_name_fields else '#cbd5e1' }};">
+                    <span data-account-name-label
+                        style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">-- Select Column
+                        --</span>
+                    <span style="margin-left: auto; font-weight: 900; font-size: larger; color: #64748b;">⌄</span>
+                </summary>
+                <div data-account-name-values>
+                    {% for selected_header in account_name_fields %}
+                    <input type="hidden" name="ACCOUNT_NAME" value="{{ selected_header }}">
+                    {% endfor %}
+                </div>
+                <div
+                    style="position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 20; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; background: white; max-height: 180px; overflow-y: auto; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);">
+                    <input type="text" name="account_name_concat_separator" class="fancy-select"
+                        value="{{ file.account_name_concat_separator }}" placeholder="Separator"
+                        style="width: 100%; margin-bottom: 10px;">
+                    {% for header in file.headers %}
+                    <label
+                        style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--text-color); font-size: 13px; font-weight: normal; cursor: pointer;">
+                        <input type="checkbox" value="{{ header }}" {% if header in account_name_fields %}checked{%
+                            endif %} style="accent-color: var(--primary);">
+                        <span data-order
+                            style="display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 999px; border: 1px solid #cbd5e1; color: var(--text-color); font-size: 11px;"></span>
+                        <span>{{ header }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </details>
+            <script>
+                (() => {
+                    const picker = document.getElementById("account-name-picker-{{ file.id }}");
+                    if (!picker) return;
+
+                    const maxSelected = Number(picker.dataset.maxSelected || 3);
+                    const valueHolder = picker.querySelector("[data-account-name-values]");
+                    const label = picker.querySelector("[data-account-name-label]");
+                    const checkboxes = Array.from(picker.querySelectorAll('input[type="checkbox"]'));
+                    let selected = checkboxes.filter(cb => cb.checked).map(cb => cb.value).slice(0, maxSelected);
+
+                    const render = () => {
+                        valueHolder.innerHTML = "";
+                        selected.forEach(value => {
+                            const input = document.createElement("input");
+                            input.type = "hidden";
+                            input.name = "ACCOUNT_NAME";
+                            input.value = value;
+                            valueHolder.appendChild(input);
+                        });
+
+                        checkboxes.forEach(cb => {
+                            const order = selected.indexOf(cb.value);
+                            const badge = cb.closest("label").querySelector("[data-order]");
+                            cb.checked = order !== -1;
+                            badge.textContent = order === -1 ? "" : String(order + 1);
+                        });
+
+                        label.textContent = selected.length ? selected.join(" + ") : "-- Select Column --";
+                    };
+
+                    checkboxes.forEach(cb => {
+                        cb.addEventListener("change", () => {
+                            if (cb.checked) {
+                                if (!selected.includes(cb.value) && selected.length < maxSelected) {
+                                    selected.push(cb.value);
+                                } else if (selected.length >= maxSelected) {
+                                    cb.checked = false;
+                                }
+                            } else {
+                                selected = selected.filter(value => value !== cb.value);
+                            }
+                            render();
+                        });
+                    });
+
+                    document.addEventListener("click", event => {
+                        if (!picker.contains(event.target)) {
+                            picker.open = false;
+                        }
+                    });
+
+                    render();
+                })();
+            </script>
+            {% else %}
+            <select name="{{ target }}" class="fancy-select" {% if file.mapped_fields[target] and
+                file.mapped_fields[target] !='__NA__' %}style="border-color: var(--success); background: #f0fdf4;" {%
+                endif %} required>
+                <option value="">-- Select Column --</option>
+                <option value="__NA__" {% if file.mapped_fields[target]=='__NA__' %}selected{% endif %}>N/A (Column
+                    Missing)</option>
+                {% for header in file.headers %}
+                <option value="{{ header }}" {% if file.mapped_fields[target]==header %}selected{% endif %}>
+                    {{ header }}
+                </option>
+                {% endfor %}
+            </select>
+            {% endif %}
+        </div>
+        {% endfor %}
+        {% endif %}
+
     </div>
-    <div class="form-actions" style="margin-top: 1.5rem; display: flex; justify-content: flex-end; gap: 1rem; border-top: 1px solid #cbd5e1; padding-top: 1.25rem;">
+    <div class="form-actions"
+        style="margin-top: 1.5rem; display: flex; justify-content: flex-end; gap: 1rem; border-top: 1px solid #cbd5e1; padding-top: 1.25rem;">
         <button type="button" class="btn btn-outline" onclick="this.closest('form').remove()">Cancel</button>
         <button type="submit" class="btn btn-primary">Save Mapping</button>
     </div>
