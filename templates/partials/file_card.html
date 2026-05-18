@@ -1,40 +1,82 @@
-<div class="file-card" id="file-{{ file.id }}">
+<div class="file-card {% if file.preset_name == 'intelligence' %}intelligence-preset{% elif file.preset_name == 'custom' %}custom-preset{% endif %}" id="file-{{ file.id }}">
     <div class="file-header">
         <div class="file-info">
-            <span class="file-name">{{ file.original_filename }}</span>
-            <span class="file-status status-{{ file.status.split(' ')[0].lower() }}">{{ file.status }}</span>
+            <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                <span class="file-name">{{ file.original_filename }}</span>
+                {% if file.preset_name == 'retail' %}
+                    <span class="badge badge-retail">Retail Preset</span>
+                {% elif file.preset_name == 'intelligence' %}
+                    <span class="badge badge-intelligence">Intelligence Preset</span>
+                {% else %}
+                    <span class="badge badge-custom">Custom Mapping</span>
+                {% endif %}
+            </div>
+            
+            <div class="file-meta">
+                Uploaded {{ file.uploaded_at | datetimeformat if datetimeformat else 'just now' }} &bull; 
+                Size: {{ (file.upload_size / 1024) | round(1) }} KB &bull;
+                Strategy: 
+                {% if file.duplicate_logic == 'weirdly_similar' %}
+                    Fuzzy Whole-Row
+                {% elif file.duplicate_logic == 'primary_key' and file.primary_key_field %}
+                    Key ({{ file.primary_key_field }})
+                {% else %}
+                    Key-Based
+                {% endif %}
+            </div>
+
+            <div class="file-status-indicator status-{{ file.status.split(' ')[0].lower() }}" style="margin-top: 0.5rem;">
+                <span class="status-dot"></span>
+                <span>{{ file.status }}</span>
+            </div>
         </div>
-        <div class="file-actions">
+
+        <div class="file-actions" style="display: flex; gap: 0.5rem; align-items: center;">
             {% if 'Processed' in file.status %}
-            <button class="btn btn-success" hx-get="/api/view/{{ file.id }}" hx-target="#data-view-{{ file.id }}">View
-                Data</button>
-            {% if file.skipped_records %}
-            <button class="btn btn-warning" hx-get="/api/view-skipped/{{ file.id }}" hx-target="#data-view-{{ file.id }}">View {{ file.skipped_records | length }} Skipped</button>
-            {% endif %}
-            <a href="/api/download/{{ file.original_filename | replace('.xlsx', '.csv') }}" class="btn btn-primary"
-                style="text-decoration: none;">Download</a>
+                <button class="btn btn-outline" hx-get="/api/view/{{ file.id }}" hx-target="#data-view-{{ file.id }}">
+                    🔍 View Cleaned
+                </button>
+                {% if file.skipped_records %}
+                    <button class="btn btn-danger" hx-get="/api/view-skipped/{{ file.id }}" hx-target="#data-view-{{ file.id }}">
+                        ⚠️ {{ file.skipped_records | length }} Skipped
+                    </button>
+                {% endif %}
+                {% set out_filename = file.cleaned_path.split('/')[-1] if file.cleaned_path else (file.original_filename | replace('.xlsx', '.csv')) %}
+                <a href="/api/download/{{ out_filename }}" class="btn btn-accent" download style="text-decoration: none;">
+                    📥 Download
+                </a>
             {% elif file.status == 'Ready' %}
-            <button class="btn btn-warning" hx-post="/api/components/mapping/{{ file.id }}"
-                hx-target="#mapping-area-{{ file.id }}">Options</button>
-            <button class="btn btn-primary" hx-post="/api/process/{{ file.id }}" hx-target="#file-{{ file.id }}"
-                hx-swap="outerHTML">Process</button>
+                <button class="btn btn-outline" hx-post="/api/components/mapping/{{ file.id }}" hx-target="#mapping-area-{{ file.id }}">
+                    ⚙️ Options
+                </button>
+                <button class="btn btn-primary" hx-post="/api/process/{{ file.id }}" hx-target="#file-{{ file.id }}" hx-swap="outerHTML">
+                    🚀 Run Ingestion
+                </button>
             {% elif 'Needs Duplicate Review' in file.status %}
-            <button class="btn btn-warning" hx-post="/api/components/mapping/{{ file.id }}"
-                hx-target="#mapping-area-{{ file.id }}">Options</button>
+                <button class="btn btn-outline" hx-post="/api/components/mapping/{{ file.id }}" hx-target="#mapping-area-{{ file.id }}">
+                    ⚙️ Options
+                </button>
             {% elif 'Needs Mapping' in file.status or 'Needs Sheet' in file.status %}
-            <button class="btn btn-warning" hx-post="/api/components/mapping/{{ file.id }}"
-                hx-target="#mapping-area-{{ file.id }}">Configure</button>
+                <button class="btn btn-accent" hx-post="/api/components/mapping/{{ file.id }}" hx-target="#mapping-area-{{ file.id }}">
+                    🛠️ Map Columns
+                </button>
             {% endif %}
-            <button class="btn btn-danger" hx-delete="/api/delete/{{ file.id }}" hx-target="#file-{{ file.id }}"
-                hx-swap="delete">X</button>
+            
+            <button class="btn btn-danger" hx-delete="/api/delete/{{ file.id }}" hx-target="#file-{{ file.id }}" hx-swap="delete" title="Remove File" style="padding: 0.625rem 0.875rem;">
+                ❌
+            </button>
         </div>
     </div>
+
+    <!-- Health Warning Logs Overlay -->
+    {% include 'partials/health_report.html' %}
 
     <div id="mapping-area-{{ file.id }}" class="mapping-area">
         {# Dynamic mapping form will be injected here via HTMX #}
         {% if file.duplicate_groups and 'Needs Duplicate Review' in file.status %}
-        {% include 'partials/duplicate_review.html' %}
+            {% include 'partials/duplicate_review.html' %}
         {% endif %}
     </div>
-    <div id="data-view-{{ file.id }}" class="data-view-area"></div>
+    
+    <div id="data-view-{{ file.id }}" class="data-view-area" style="margin-top: 1rem;"></div>
 </div>

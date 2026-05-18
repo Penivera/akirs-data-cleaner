@@ -1,33 +1,41 @@
-<header>
-    <h1><span class="gradient-text">Cleaned</span> Data</h1>
-    <p>View and batch download all your historically processed CSV files.</p>
+<header style="margin-bottom: 2rem;">
+    <h2 style="font-family: var(--font-heading); font-size: 2rem; font-weight: 800; color: var(--primary); margin-bottom: 0.5rem;">Cleaned Datasets</h2>
+    <p style="color: #64748b;">Browse, verify, and batch download all historically processed and cleaned government records.</p>
 </header>
 
 <section class="gallery-section">
     <form id="batch-download-form" action="/api/download-batch" method="POST">
-        <div class="gallery-toolbar">
-            <button type="submit" class="btn btn-primary" id="batch-download-btn">Download Selected (ZIP)</button>
+        <div class="gallery-toolbar" style="margin-bottom: 1.5rem; display: flex; justify-content: flex-end;">
+            <button type="submit" class="btn btn-accent" id="batch-download-btn">
+                📦 Download Selected (ZIP)
+            </button>
         </div>
 
         <div class="file-list">
             {% for file in cleaned_files %}
-            <div class="file-card">
+            <div class="file-card" style="border-top-color: var(--success);">
                 <div class="file-header">
-                    <div class="file-info" style="flex-direction: row; align-items: center; gap: 1rem;">
-                        <input type="checkbox" name="files" value="{{ file.name }}" style="transform: scale(1.2);">
+                    <div class="file-info" style="display: flex; align-items: center; gap: 1.25rem;">
+                        <input type="checkbox" name="files" value="{{ file.name }}" style="transform: scale(1.3); accent-color: var(--primary); cursor: pointer;">
                         <div>
-                            <span class="file-name">{{ file.name }}</span>
-                            <span style="font-size: 0.8rem; color: #94a3b8; display: block;">{{ file.size }} MB</span>
+                            <span class="file-name" style="font-size: 1.1rem;">{{ file.name }}</span>
+                            <span style="font-size: 0.85rem; color: #64748b; display: block; margin-top: 0.25rem;">Size: {{ file.size }} MB</span>
                         </div>
                     </div>
                     <div class="file-actions">
-                        <a href="/api/download/{{ file.name }}" class="btn btn-primary" style="text-decoration: none; display: inline-block;">Download</a>
+                        <a href="/api/download/{{ file.name }}" class="btn btn-primary" download style="text-decoration: none;">
+                            📥 Download
+                        </a>
                     </div>
                 </div>
             </div>
             {% else %}
-            <div class="glass-panel" style="text-align: center; padding: 2rem;">
-                <p>No cleaned data found in the directory.</p>
+            <div style="background: white; border: 1px dashed #cbd5e1; border-radius: 0.75rem; text-align: center; padding: 3rem; color: #64748b;">
+                <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="margin: 0 auto 1rem; display: block;">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 13.5h3.86a2.25 2.25 0 0 1 2.008 1.24l.885 1.77a2.25 2.25 0 0 0 2.007 1.24h1.98a2.25 2.25 0 0 0 2.007-1.24l.885-1.77a2.25 2.25 0 0 1 2.007-1.24h3.86m-18 0h18a2.25 2.25 0 0 1 2.25 2.25v4.25A2.25 2.25 0 0 1 21.75 21H2.25A2.25 2.25 0 0 1 0 18.75v-4.25A2.25 2.25 0 0 1 2.25 13.5Z"/>
+                </svg>
+                <p style="font-weight: 500;">No cleaned datasets currently archived.</p>
+                <p style="font-size: 0.85rem; margin-top: 0.25rem;">Processed batches will automatically compile and appear here.</p>
             </div>
             {% endfor %}
         </div>

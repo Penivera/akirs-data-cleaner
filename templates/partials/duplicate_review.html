@@ -1,22 +1,21 @@
-<form class="mapping-form glass-panel" hx-post="/api/duplicates/{{ file.id }}" hx-target="#file-{{ file.id }}"
-    hx-swap="outerHTML">
-    <h4>Duplicate NUBAN Review</h4>
-    <p style="font-size: 0.9rem; color: #94a3b8; margin-bottom: 0.75rem;">
-        Duplicates were found for {{ file.duplicate_groups | length }} NUBAN group(s). Review source row numbers and
-        choose how to continue.
+<form class="mapping-form" hx-post="/api/duplicates/{{ file.id }}" hx-target="#file-{{ file.id }}" hx-swap="outerHTML" style="background: white; border: 1px solid #cbd5e1; border-radius: 0.75rem; padding: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); margin-top: 1.5rem;">
+    <h3 style="font-family: var(--font-heading); font-size: 1.5rem; font-weight: 700; color: var(--accent); margin-bottom: 0.5rem;">Duplicate Records Review</h3>
+    <p style="font-size: 0.9rem; color: #64748b; margin-bottom: 1.5rem;">
+        The system identified <strong>{{ file.duplicate_groups | length }} duplicate cluster(s)</strong>. Review the matching rows below and choose how to proceed.
     </p>
 
     {% for group in file.duplicate_groups %}
-    <div class="glass-panel" style="margin-bottom: 0.75rem; padding: 0.75rem;">
-        <div style="font-weight: 600; margin-bottom: 0.5rem;">NUBAN: {{ group['nuban'] }} ({{ group['records'] | length
-            }}
-            rows)</div>
-        <div style="overflow-x: auto;">
+    <div style="background: var(--bg-color); border: 1px solid #e2e8f0; border-radius: 0.5rem; margin-bottom: 1.25rem; padding: 1rem; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
+        <div style="font-family: var(--font-heading); font-weight: 700; color: var(--primary); margin-bottom: 0.75rem; display: flex; justify-content: space-between; font-size: 0.95rem;">
+            <span>Group Reference: {{ group['key'] }}</span>
+            <span style="background: var(--primary-light); color: var(--primary); padding: 0.15rem 0.5rem; border-radius: 9999px; font-size: 0.75rem;">{{ group['records'] | length }} matched rows</span>
+        </div>
+        <div class="table-container" style="margin: 0;">
             <table class="fancy-table">
                 <thead>
                     <tr>
-                        <th>Accept</th>
-                        <th>Source Row</th>
+                        <th style="width: 50px; text-align: center;">Pick</th>
+                        <th style="width: 80px;">Source Row</th>
                         {% for header in targets %}
                         <th>{{ header }}</th>
                         {% endfor %}
@@ -25,12 +24,12 @@
                 <tbody>
                     {% for rec in group['records'] %}
                     <tr>
-                        <td>
-                            <input type="checkbox" name="accepted_records" value="{{ rec['id'] }}">
+                        <td style="text-align: center;">
+                            <input type="checkbox" name="accepted_records" value="{{ rec['id'] }}" style="transform: scale(1.2); accent-color: var(--accent); cursor: pointer;">
                         </td>
-                        <td>{{ rec['source_row'] }}</td>
+                        <td style="font-weight: bold; color: #475569;">#{{ rec['source_row'] }}</td>
                         {% for cell in rec['values'] %}
-                        <td>{{ cell }}</td>
+                        <td>{{ cell if cell is not none else '' }}</td>
                         {% endfor %}
                     </tr>
                     {% endfor %}
@@ -40,8 +39,12 @@
     </div>
     {% endfor %}
 
-    <div class="form-actions" style="justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
-        <button type="submit" name="decision" value="merge" class="btn btn-primary">Merge Duplicates</button>
-        <button type="submit" name="decision" value="pick" class="btn btn-warning">Accept Checked Rows</button>
+    <div class="form-actions" style="margin-top: 1.5rem; display: flex; justify-content: space-between; gap: 1rem; border-top: 1px solid #cbd5e1; padding-top: 1.25rem;">
+        <button type="submit" name="decision" value="merge" class="btn btn-primary">
+            🤝 Intelligent Merge (Combine Details)
+        </button>
+        <button type="submit" name="decision" value="pick" class="btn btn-accent">
+            ✓ Keep Checked Rows Only
+        </button>
     </div>
 </form>

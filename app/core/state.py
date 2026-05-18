@@ -21,6 +21,13 @@ class FileState:
     header_row_idx: int
     account_name_concat_order: Dict[str, str]
     account_name_concat_separator: str
+    mapped_fields: Dict[str, str]
+    preset_name: str
+    custom_fields: List[str]
+    duplicate_logic: str
+    primary_key_field: Optional[str]
+    output_pattern: str
+    health_report: Optional[Dict[str, Any]]
 
     def __init__(self):
         self.id = str(uuid.uuid4())
@@ -40,10 +47,65 @@ class FileState:
         self.header_row_idx = 0
         self.account_name_concat_order = {}
         self.account_name_concat_separator = " "
+        self.preset_name = "retail"
+        self.custom_fields = []
+        self.duplicate_logic = "primary_key"
+        self.primary_key_field = "NUBAN"
+        self.output_pattern = "{filename}"
+        self.health_report = None
 
 
 # Global state to keep track of uploaded files in memory
 file_db: Dict[str, FileState] = {}
+
+PRESETS = {
+    "retail": {
+        "name": "retail",
+        "label": "Retail Migration",
+        "fields": [
+            "TAXPAYER_ID",
+            "ACCOUNT_NAME",
+            "NUBAN",
+            "BVN",
+            "PHONE",
+            "ADDRESS",
+            "DATE",
+        ],
+        "synonyms": {
+            "TAXPAYER_ID": ["TIN", "TAXPAYER_ID", "TAXPAYER ID"],
+            "ACCOUNT_NAME": ["ACCOUNT_NAME", "ACCT_NAME", "ACCOUNT NAME", "CUSTOMER NAME"],
+            "NUBAN": ["NUBAN", "ACCOUNT_NO", "ACCT_NO", "ACCOUNT NUMBER"],
+            "BVN": ["BVN", "BANK VERIFICATION NUMBER"],
+            "PHONE": ["PHONE", "PHONE NO 1", "PHONE NO 2", "PHONE NUMBER", "MOBILE"],
+            "ADDRESS": ["ADDRESS", "RESIDENTIAL ADDRESS", "HOME ADDRESS"],
+            "DATE": ["DATE", "ACCT_OPN_DATE", "ACCOUNT OPEN DATE", "OPEN DATE", "DATE OPENED"],
+        },
+        "output_pattern": "{filename}",
+        "duplicate_logic": "primary_key",
+        "primary_key_field": "NUBAN",
+    },
+    "intelligence": {
+        "name": "intelligence",
+        "label": "Intelligence Gathering",
+        "fields": [
+            "NAME",
+            "ADDRESS",
+            "PHONE_NUMBER",
+            "NATURE_OF_BUSINESS",
+            "EMAIL",
+        ],
+        "synonyms": {
+            "NAME": ["NAME", "FULLNAME", "FULL NAME", "TAXPAYER NAME", "ACCOUNT_NAME", "CUSTOMER NAME"],
+            "ADDRESS": ["ADDRESS", "RESIDENTIAL ADDRESS", "HOME ADDRESS", "LOCATION"],
+            "PHONE_NUMBER": ["PHONE_NUMBER", "PHONE", "PHONE NO", "PHONE NUMBER", "MOBILE"],
+            "NATURE_OF_BUSINESS": ["NATURE_OF_BUSINESS", "BUSINESS", "LINE OF BUSINESS", "NATURE OF BUSINESS", "OCCUPATION"],
+            "EMAIL": ["EMAIL", "EMAIL ADDRESS", "EMAIL_ADDRESS"],
+        },
+        "output_pattern": "INTELIGENCE_GATHERING_{filename}",
+        "duplicate_logic": "weirdly_similar",
+        "primary_key_field": "",
+    }
+}
 
 TARGET_FIELDS = [
     "TAXPAYER_ID",

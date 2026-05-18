@@ -7,7 +7,7 @@ import time
 from io import BytesIO
 from typing import Dict, Any, List
 
-from app.core.state import file_db, FileState, TARGET_FIELDS
+from app.core.state import file_db, FileState, TARGET_FIELDS, PRESETS
 from app.services.cleaner import (
     auto_map_headers,
     extract_records,
@@ -17,6 +17,7 @@ from app.services.cleaner import (
     load_tabular_rows,
     find_header_row_and_headers_from_rows,
     detect_distinct_branches,
+    pre_flight_validate,
 )
 
 router = APIRouter()
@@ -73,6 +74,21 @@ async def upload_file(request: Request, file: List[UploadFile] = File(...)):
         state.upload_size = file_size
         state.uploaded_at = now
 
+        # Run pre-flight health validator
+        state.health_report = pre_flight_validate(temp_path)
+
+        # Smart auto-detection of preset
+        if "intel" in f.filename.lower():
+            state.preset_name = "intelligence"
+            state.duplicate_logic = "weirdly_similar"
+            state.primary_key_field = ""
+            state.output_pattern = "INTELIGENCE_GATHERING_{filename}"
+        else:
+            state.preset_name = "retail"
+            state.duplicate_logic = "primary_key"
+            state.primary_key_field = "NUBAN"
+            state.output_pattern = "{filename}"
+
         # Analyze headers
         try:
             _, sheet_names = load_tabular_rows(temp_path, "")
@@ -87,7 +103,10 @@ async def upload_file(request: Request, file: List[UploadFile] = File(...)):
                 state.headers = [h for h in headers if h]
                 state.header_row_idx = idx
 
-                mapped_fields, status = auto_map_headers(state.headers)
+                # Run pre-flight check again with sheets if needed
+                state.health_report = pre_flight_validate(temp_path, state.selected_sheets[0])
+
+                mapped_fields, status = auto_map_headers(state.headers, state.preset_name)
                 state.mapped_fields = mapped_fields
                 state.status = status
                 state.available_branches = detect_distinct_branches(
@@ -102,10 +121,18 @@ async def upload_file(request: Request, file: List[UploadFile] = File(...)):
         file_db[state.id] = state
         processed_states.append(state)
 
+    # Determine display targets for cards
+    card_targets = TARGET_FIELDS
+    for s in processed_states:
+        if s.preset_name == "custom":
+            card_targets = s.custom_fields
+        else:
+            card_targets = PRESETS.get(s.preset_name, PRESETS["retail"])["fields"]
+
     return templates.TemplateResponse(
         request=request,
         name="partials/file_cards.html",
-        context={"request": request, "files": processed_states, "targets": TARGET_FIELDS},
+        context={"request": request, "files": processed_states, "targets": card_targets, "presets": PRESETS},
     )
 
 
@@ -115,18 +142,58 @@ async def edit_mapping(request: Request, file_id: str):
     if not state:
         return "File not found"
 
+    preset_arg = request.query_params.get("preset")
+    if preset_arg and preset_arg in ["retail", "intelligence", "custom"]:
+        state.preset_name = preset_arg
+        if preset_arg == "retail":
+            state.duplicate_logic = "primary_key"
+            state.primary_key_field = "NUBAN"
+            state.output_pattern = "{filename}"
+        elif preset_arg == "intelligence":
+            state.duplicate_logic = "weirdly_similar"
+            state.primary_key_field = ""
+            state.output_pattern = "INTELIGENCE_GATHERING_{filename}"
+        elif preset_arg == "custom":
+            state.duplicate_logic = "primary_key"
+            state.primary_key_field = ""
+            state.output_pattern = "CUSTOM_{filename}"
+            state.custom_fields = ["NAME", "PHONE", "IDENTITY"]
+
+        # Run auto mapping for the newly selected preset
+        mapped_fields, status = auto_map_headers(state.headers, state.preset_name, state.custom_fields)
+        state.mapped_fields = mapped_fields
+        state.status = status
+    else:
+        # Check if form data has updated custom fields
+        try:
+            form_data = await request.form()
+            if form_data.get("custom_fields"):
+                custom_raw = form_data.get("custom_fields")
+                state.custom_fields = [f.strip().upper() for f in custom_raw.split(",") if f.strip()]
+                mapped_fields, status = auto_map_headers(state.headers, state.preset_name, state.custom_fields)
+                state.mapped_fields = mapped_fields
+                state.status = status
+        except Exception:
+            pass
+
     preview_rows = []
     if state.status != "Needs Sheet" and getattr(state, "header_row_idx", None) is not None:
         try:
             rows, _ = load_tabular_rows(state.saved_path, state.selected_sheets[0] if state.selected_sheets else "")
-            preview_rows = rows[state.header_row_idx + 1 : state.header_row_idx + 4]
+            # Limit preview rows to 10 for performance
+            preview_rows = rows[state.header_row_idx + 1 : state.header_row_idx + 11]
         except Exception:
             pass
+
+    if state.preset_name == "custom":
+        fields = state.custom_fields
+    else:
+        fields = PRESETS.get(state.preset_name, PRESETS["retail"])["fields"]
 
     return templates.TemplateResponse(
         request=request,
         name="partials/mapping_form.html",
-        context={"request": request, "file": state, "targets": TARGET_FIELDS, "preview_rows": preview_rows},
+        context={"request": request, "file": state, "targets": fields, "preview_rows": preview_rows, "presets": PRESETS},
     )
 
 
@@ -141,14 +208,14 @@ async def save_mapping(request: Request, file_id: str):
     # Handle Sheet Selection
     if form_data.getlist("selected_sheets"):
         state.selected_sheets = form_data.getlist("selected_sheets")
-        # Proceed with parsing the first selected sheet for header detection
         try:
+            state.health_report = pre_flight_validate(state.saved_path, state.selected_sheets[0])
             rows, _ = load_tabular_rows(state.saved_path, state.selected_sheets[0])
             idx, headers = find_header_row_and_headers_from_rows(rows)
             state.headers = [h for h in headers if h]
             state.header_row_idx = idx
 
-            mapped_fields, status = auto_map_headers(state.headers)
+            mapped_fields, status = auto_map_headers(state.headers, state.preset_name)
             state.mapped_fields = mapped_fields
             state.status = status
             state.available_branches = detect_distinct_branches(
@@ -159,16 +226,31 @@ async def save_mapping(request: Request, file_id: str):
         except Exception as e:
             state.status = f"Error: {str(e)}"
     else:
-        separator = form_data.get("ACCOUNT_NAME_SEPARATOR", " ")
-        state.mapped_fields["__ACCOUNT_NAME_SEPARATOR"] = separator if separator else " "
+        # Load preset preferences
+        state.preset_name = form_data.get("preset_name", "retail")
+        state.duplicate_logic = form_data.get("duplicate_logic", "primary_key")
+        state.primary_key_field = form_data.get("primary_key_field") or ""
+        state.output_pattern = form_data.get("output_pattern") or "{filename}"
 
-        for target in TARGET_FIELDS:
+        if state.preset_name == "custom":
+            custom_raw = form_data.get("custom_fields", "")
+            state.custom_fields = [f.strip().upper() for f in custom_raw.split(",") if f.strip()]
+            fields = state.custom_fields
+        else:
+            fields = PRESETS.get(state.preset_name, PRESETS["retail"])["fields"]
+            state.custom_fields = []
+
+        # Read fields from mapping inputs
+        state.mapped_fields = {}
+        for target in fields:
             val = form_data.getlist(target)[:3] if target == "ACCOUNT_NAME" else form_data.get(target)
             if val is not None:
                 state.mapped_fields[target] = val
 
         if form_data.getlist("selected_branches"):
             state.selected_branches = form_data.getlist("selected_branches")
+        else:
+            state.selected_branches = []
 
         # Save account name concatenation order configuration
         state.account_name_concat_order = {}
@@ -182,15 +264,20 @@ async def save_mapping(request: Request, file_id: str):
         state.account_name_concat_separator = sep if sep else " "
 
         # Check if all targets are mapped
-        if all(state.mapped_fields.get(t) for t in TARGET_FIELDS):
+        if all(state.mapped_fields.get(t) for t in fields):
             state.status = "Ready"
         else:
             state.status = "Needs Mapping"
 
+    if state.preset_name == "custom":
+        fields = state.custom_fields
+    else:
+        fields = PRESETS.get(state.preset_name, PRESETS["retail"])["fields"]
+
     return templates.TemplateResponse(
         request=request,
         name="partials/file_card.html",
-        context={"request": request, "file": state, "targets": TARGET_FIELDS},
+        context={"request": request, "file": state, "targets": fields},
     )
 
 
@@ -207,6 +294,11 @@ async def process_file(request: Request, file_id: str):
     if not state:
         return "File not found"
 
+    if state.preset_name == "custom":
+        fields = state.custom_fields
+    else:
+        fields = PRESETS.get(state.preset_name, PRESETS["retail"])["fields"]
+
     try:
         records, skipped_records = extract_records(
             state.saved_path,
@@ -216,16 +308,20 @@ async def process_file(request: Request, file_id: str):
             state.selected_branches,
             state.account_name_concat_order,
             state.account_name_concat_separator,
+            state.preset_name,
+            state.custom_fields,
+            state.duplicate_logic,
+            state.primary_key_field,
         )
         state.skipped_records = skipped_records
-        duplicate_groups = find_duplicate_groups(records)
+        duplicate_groups = find_duplicate_groups(records, state.duplicate_logic, state.primary_key_field, fields)
 
         if duplicate_groups:
             state.extracted_records = records
             state.duplicate_groups = duplicate_groups
             state.status = f"Needs Duplicate Review ({len(duplicate_groups)} groups)"
         else:
-            out_path = save_cleaned_records(state.saved_path, records)
+            out_path = save_cleaned_records(state.saved_path, records, fields, state.output_pattern)
             state.status = f"Processed ({len(records)} rows)"
             setattr(state, "cleaned_path", out_path)
     except Exception as e:
@@ -234,7 +330,7 @@ async def process_file(request: Request, file_id: str):
     return templates.TemplateResponse(
         request=request,
         name="partials/file_card.html",
-        context={"request": request, "file": state, "targets": TARGET_FIELDS},
+        context={"request": request, "file": state, "targets": fields},
     )
 
 
@@ -243,6 +339,11 @@ async def resolve_duplicates(request: Request, file_id: str):
     state = file_db.get(file_id)
     if not state:
         return "File not found"
+
+    if state.preset_name == "custom":
+        fields = state.custom_fields
+    else:
+        fields = PRESETS.get(state.preset_name, PRESETS["retail"])["fields"]
 
     form_data = await request.form()
     decision = form_data.get("decision", "merge")
@@ -253,7 +354,7 @@ async def resolve_duplicates(request: Request, file_id: str):
         return templates.TemplateResponse(
             request=request,
             name="partials/file_card.html",
-            context={"request": request, "file": state, "targets": TARGET_FIELDS},
+            context={"request": request, "file": state, "targets": fields},
         )
 
     if decision == "pick" and not accepted_record_ids:
@@ -261,7 +362,7 @@ async def resolve_duplicates(request: Request, file_id: str):
         return templates.TemplateResponse(
             request=request,
             name="partials/file_card.html",
-            context={"request": request, "file": state, "targets": TARGET_FIELDS},
+            context={"request": request, "file": state, "targets": fields},
         )
 
     try:
@@ -272,8 +373,9 @@ async def resolve_duplicates(request: Request, file_id: str):
             duplicate_groups,
             decision,
             accepted_record_ids,
+            fields,
         )
-        out_path = save_cleaned_records(state.saved_path, resolved_records)
+        out_path = save_cleaned_records(state.saved_path, resolved_records, fields, state.output_pattern)
         state.status = f"Processed ({len(resolved_records)} rows)"
         state.cleaned_path = out_path
         state.duplicate_groups = []
@@ -284,7 +386,7 @@ async def resolve_duplicates(request: Request, file_id: str):
     return templates.TemplateResponse(
         request=request,
         name="partials/file_card.html",
-        context={"request": request, "file": state, "targets": TARGET_FIELDS},
+        context={"request": request, "file": state, "targets": fields},
     )
 
 
@@ -354,10 +456,15 @@ async def view_skipped(request: Request, file_id: str):
     if not state or getattr(state, "skipped_records", None) is None:
         return "Not available"
 
+    if state.preset_name == "custom":
+        fields = state.custom_fields
+    else:
+        fields = PRESETS.get(state.preset_name, PRESETS["retail"])["fields"]
+
     return templates.TemplateResponse(
         request=request,
         name="partials/skip_report.html",
-        context={"request": request, "file": state, "targets": TARGET_FIELDS},
+        context={"request": request, "file": state, "targets": fields},
     )
 
 
