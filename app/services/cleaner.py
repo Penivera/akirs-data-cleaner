@@ -488,7 +488,7 @@ def auto_map_headers(excel_headers: List[str], preset_name: str = "retail", cust
 
 def extract_records(
     file_path: str,
-    mapped_fields: Dict[str, str],
+    mapped_fields: Dict[str, Any],
     header_row_idx: int,
     selected_sheets: List[str],
     selected_branches: List[str],
@@ -498,6 +498,7 @@ def extract_records(
     custom_fields: List[str] = None,
     duplicate_logic: str = "primary_key",
     primary_key_field: str = "NUBAN",
+    field_separators: Dict[str, str] = None,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Extract normalized records from source workbook with source row numbers."""
     if account_name_concat_order is None:
@@ -524,6 +525,8 @@ def extract_records(
         header_map = {header: idx for idx, header in enumerate(excel_headers)}
 
         def get_val(row, source_field):
+            if isinstance(source_field, list):
+                return ""
             if source_field == "__NA__":
                 return ""
             if source_field and source_field in header_map:
@@ -598,40 +601,43 @@ def extract_records(
 
             values: List[str] = []
             for target in fields:
-                if target == "ACCOUNT_NAME":
-                    account_name = "N/A"
-                    if account_name_concat_order:
+                mapped_val = mapped_fields.get(target, "")
+                if not mapped_val or mapped_val == "__NA__":
+                    values.append("N/A")
+                elif isinstance(mapped_val, list):
+                    # Concatenate selected columns in the user-specified list order
+                    concat_parts = []
+                    for col_name in mapped_val:
+                        val = get_val(row, col_name)
+                        if val:
+                            concat_parts.append(val)
+                    
+                    separator = " "
+                    if field_separators and target in field_separators:
+                        separator = field_separators[target]
+                    elif target == "ACCOUNT_NAME":
+                        separator = account_name_concat_separator if account_name_concat_separator else " "
+                        
+                    values.append(separator.join(concat_parts) if concat_parts else "N/A")
+                else:
+                    # Simple single-column mapping
+                    # Fallback to old behavior for ACCOUNT_NAME if concatenation order is defined
+                    if target == "ACCOUNT_NAME" and account_name_concat_order:
                         # Sort concatenation columns by user-specified order
                         def get_order_key(item):
                             val = str(item[1]).strip()
                             return int(val) if val.isdigit() else 999
-                            
                         sorted_cols = sorted(account_name_concat_order.items(), key=get_order_key)
-                        
-                        # Concatenate selected columns for account name
                         concat_parts = []
                         for col_name, _ in sorted_cols:
-                            if col_name in header_map:
-                                col_idx = header_map[col_name]
-                                if col_idx < len(row):
-                                    val = row[col_idx]
-                                    part = str(val).strip() if val is not None else ""
-                                    if part:
-                                        concat_parts.append(part)
-                        
+                            val = get_val(row, col_name)
+                            if val:
+                                concat_parts.append(val)
                         if concat_parts:
-                            separator = account_name_concat_separator if account_name_concat_separator else " "
-                            account_name = separator.join(concat_parts)
+                            values.append((account_name_concat_separator or " ").join(concat_parts))
+                            continue
 
-                    # Fallback to mapped field if concatenation is empty or not configured
-                    if account_name == "N/A":
-                        source_field = mapped_fields.get("ACCOUNT_NAME", "")
-                        account_name = get_val(row, source_field) or "N/A"
-                    
-                    values.append(account_name)
-                else:
-                    source_field = mapped_fields.get(target, "")
-                    values.append(get_val(row, source_field) or "N/A")
+                    values.append(get_val(row, mapped_val) or "N/A")
 
             # Validate TIN (mostly at least 5 alphanumeric characters with some numbers)
             if "TAXPAYER_ID" in fields:
@@ -727,6 +733,8 @@ def find_duplicate_groups(
     grouped = defaultdict(list)
     for record in records:
         nuban = record.get("nuban", "N/A")
+        if isinstance(nuban, list):
+            nuban = " ".join(str(n) for n in nuban)
         if nuban and nuban != "N/A":
             grouped[nuban].append(record)
 
@@ -817,7 +825,7 @@ def save_cleaned_records(
 def process_and_save(
     file_id: str,
     file_path: str,
-    mapped_fields: Dict[str, str],
+    mapped_fields: Dict[str, Any],
     header_row_idx: int,
     selected_sheets: List[str],
     selected_branches: List[str],
@@ -828,6 +836,7 @@ def process_and_save(
     duplicate_logic: str = "primary_key",
     primary_key_field: str = "NUBAN",
     output_pattern: str = "{filename}",
+    field_separators: Dict[str, str] = None,
 ) -> str:
     """Run full extraction, cleaning, and CSV save process."""
     if account_name_concat_order is None:
@@ -852,6 +861,7 @@ def process_and_save(
         custom_fields,
         duplicate_logic,
         primary_key_field,
+        field_separators,
     )
     duplicate_groups = find_duplicate_groups(records, duplicate_logic, primary_key_field, fields)
     resolved = resolve_duplicate_records(records, duplicate_groups, "merge", [], fields)

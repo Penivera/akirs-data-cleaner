@@ -242,17 +242,26 @@ async def save_mapping(request: Request, file_id: str):
 
         # Read fields from mapping inputs
         state.mapped_fields = {}
+        state.field_separators = {}
         for target in fields:
-            val = form_data.getlist(target)[:3] if target == "ACCOUNT_NAME" else form_data.get(target)
-            if val is not None:
+            val = form_data.getlist(target)
+            val = [v for v in val if v]
+            if not val:
+                state.mapped_fields[target] = ""
+            elif len(val) == 1:
+                state.mapped_fields[target] = val[0]
+            else:
                 state.mapped_fields[target] = val
+                
+            sep = form_data.get(f"separator_{target}", " ")
+            state.field_separators[target] = sep if sep else " "
 
         if form_data.getlist("selected_branches"):
             state.selected_branches = form_data.getlist("selected_branches")
         else:
             state.selected_branches = []
 
-        # Save account name concatenation order configuration
+        # Save account name concatenation order configuration (backwards compatibility)
         state.account_name_concat_order = {}
         for header in state.headers:
             order_val = form_data.get(f"account_name_concat_order_{header}", "").strip()
@@ -312,6 +321,7 @@ async def process_file(request: Request, file_id: str):
             state.custom_fields,
             state.duplicate_logic,
             state.primary_key_field,
+            getattr(state, "field_separators", None),
         )
         state.skipped_records = skipped_records
         duplicate_groups = find_duplicate_groups(records, state.duplicate_logic, state.primary_key_field, fields)

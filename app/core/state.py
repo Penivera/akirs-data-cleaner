@@ -21,7 +21,8 @@ class FileState:
     header_row_idx: int
     account_name_concat_order: Dict[str, str]
     account_name_concat_separator: str
-    mapped_fields: Dict[str, str]
+    mapped_fields: Dict[str, Any]
+    field_separators: Dict[str, str]
     preset_name: str
     custom_fields: List[str]
     duplicate_logic: str
@@ -33,6 +34,7 @@ class FileState:
         self.id = str(uuid.uuid4())
         self.headers = []
         self.mapped_fields = {}
+        self.field_separators = {}
         self.status = "New"
         self.sheet_names = []
         self.selected_sheets = []

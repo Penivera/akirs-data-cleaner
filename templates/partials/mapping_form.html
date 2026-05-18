@@ -150,91 +150,171 @@
             style="grid-column: 1 / -1; font-weight: 700; font-size: 0.875rem; color: #475569; margin-top: 0.5rem; margin-bottom: -0.5rem;">
             Column Mappings</div>
         {% for target in targets %}
-        <div class="mapping-row"
-            style="background: #fafafa; padding: 0.75rem; border-radius: 0.5rem; border: 1px solid #f1f5f9;">
-            <label style="display: flex; justify-content: space-between; align-items: center;">
-                <span>{{ target }}</span>
+        <div class="mapping-row" style="background: #fafafa; padding: 0.75rem; border-radius: 0.5rem; border: 1px solid #f1f5f9;">
+            <label style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                <span style="font-weight: 600; font-size: 0.85rem; color: #334155;">{{ target }}</span>
                 {% if file.mapped_fields[target] and file.mapped_fields[target] != '__NA__' %}
-                <span style="color: var(--success); font-size: 0.75rem; font-weight: bold;">✓ Auto-mapped</span>
+                <span style="color: var(--success); font-size: 0.725rem; font-weight: bold;">✓ Auto-mapped</span>
                 {% endif %}
             </label>
-            {% if target == 'ACCOUNT_NAME' %}
-            {% set raw_account_name = file.mapped_fields.get(target, '') %}
-            {% set account_name_fields = raw_account_name if raw_account_name is sequence and raw_account_name is not
-            string else ([raw_account_name] if raw_account_name else []) %}
-            {% set account_name_separator = file.mapped_fields.get('__ACCOUNT_NAME_SEPARATOR', ' ') %}
-            <details id="account-name-picker-{{ file.id }}" data-account-name-picker data-max-selected="3"
-                style="position: relative;">
-                <summary class="fancy-select"
-                    style="display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; list-style: none; border-color: {{ 'var(--success)' if account_name_fields else '#cbd5e1' }};">
-                    <span data-account-name-label
-                        style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">-- Select Column
-                        --</span>
-                    <span style="margin-left: auto; font-weight: 900; font-size: larger; color: #64748b;">⌄</span>
+            
+            {% set raw_val = file.mapped_fields.get(target, '') %}
+            {% set selected_fields = raw_val if raw_val is sequence and raw_val is not string else ([raw_val] if raw_val else []) %}
+            {% set field_separator = file.field_separators.get(target, ' ') if file.field_separators else ' ' %}
+
+            <details id="picker-{{ file.id }}-{{ target }}" class="generic-field-picker" data-target="{{ target }}" data-max-selected="5" style="position: relative; width: 100%;">
+                <summary class="fancy-select" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; list-style: none; border-color: {{ 'var(--success)' if selected_fields else '#cbd5e1' }}; background: {{ '#f0fdf4' if selected_fields else 'white' }};">
+                    <span class="picker-label" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.85rem; color: {{ '#1e293b' if selected_fields else '#94a3b8' }};">
+                        {% if selected_fields %}
+                            {% if selected_fields[0] == '__NA__' %}
+                                N/A (Column Missing)
+                            {% else %}
+                                {{ selected_fields|join(' + ') }}
+                            {% endif %}
+                        {% else %}
+                            -- Select Column --
+                        {% endif %}
+                    </span>
+                    <span style="margin-left: auto; font-weight: 900; font-size: 0.85rem; color: #64748b;">⌄</span>
                 </summary>
-                <div data-account-name-values>
-                    {% for selected_header in account_name_fields %}
-                    <input type="hidden" name="ACCOUNT_NAME" value="{{ selected_header }}">
+                
+                <div class="picker-values-holder" style="display: none;">
+                    {% for selected_header in selected_fields %}
+                    <input type="hidden" name="{{ target }}" value="{{ selected_header }}">
                     {% endfor %}
                 </div>
-                <div
-                    style="position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 20; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; background: white; max-height: 180px; overflow-y: auto; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);">
-                    <input type="text" name="account_name_concat_separator" class="fancy-select"
-                        value="{{ file.account_name_concat_separator }}" placeholder="Separator"
-                        style="width: 100%; margin-bottom: 10px;">
+
+                <div class="picker-overlay" style="position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 50; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; background: white; max-height: 220px; overflow-y: auto; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);">
+                    <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 8px; border-bottom: 1px solid #f1f5f9; padding-bottom: 8px;">
+                        <span style="font-size: 11px; font-weight: bold; color: #64748b; white-space: nowrap;">Separator:</span>
+                        <input type="text" name="separator_{{ target }}" class="fancy-select" value="{{ field_separator }}" placeholder="Space" style="width: 100%; height: 26px; padding: 2px 8px; font-size: 12px; margin: 0;">
+                    </div>
+                    
+                    <!-- N/A missing column option -->
+                    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: #e11d48; font-size: 13px; font-weight: 500; cursor: pointer; border-bottom: 1px solid #f1f5f9; padding-bottom: 8px;">
+                        <input type="checkbox" value="__NA__" {% if '__NA__' in selected_fields %}checked{% endif %} class="picker-na-cb" style="accent-color: #e11d48;">
+                        <span>N/A (Column Missing)</span>
+                    </label>
+
                     {% for header in file.headers %}
-                    <label
-                        style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--text-color); font-size: 13px; font-weight: normal; cursor: pointer;">
-                        <input type="checkbox" value="{{ header }}" {% if header in account_name_fields %}checked{%
-                            endif %} style="accent-color: var(--primary);">
-                        <span data-order
-                            style="display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 999px; border: 1px solid #cbd5e1; color: var(--text-color); font-size: 11px;"></span>
+                    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--text-color); font-size: 13px; font-weight: normal; cursor: pointer;">
+                        <input type="checkbox" value="{{ header }}" {% if header in selected_fields and selected_fields[0] != '__NA__' %}checked{% endif %} class="picker-header-cb" style="accent-color: var(--primary);">
+                        <span class="picker-badge-order" style="display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 999px; border: 1px solid #cbd5e1; color: var(--text-color); font-size: 10px; font-weight: bold; background: #fafafa;"></span>
                         <span>{{ header }}</span>
                     </label>
                     {% endfor %}
                 </div>
             </details>
+
             <script>
                 (() => {
-                    const picker = document.getElementById("account-name-picker-{{ file.id }}");
+                    const picker = document.getElementById("picker-{{ file.id }}-{{ target }}");
                     if (!picker) return;
 
-                    const maxSelected = Number(picker.dataset.maxSelected || 3);
-                    const valueHolder = picker.querySelector("[data-account-name-values]");
-                    const label = picker.querySelector("[data-account-name-label]");
-                    const checkboxes = Array.from(picker.querySelectorAll('input[type="checkbox"]'));
-                    let selected = checkboxes.filter(cb => cb.checked).map(cb => cb.value).slice(0, maxSelected);
+                    const maxSelected = Number(picker.dataset.maxSelected || 5);
+                    const valueHolder = picker.querySelector(".picker-values-holder");
+                    const label = picker.querySelector(".picker-label");
+                    const summary = picker.querySelector("summary");
+                    const naCheckbox = picker.querySelector(".picker-na-cb");
+                    const headerCheckboxes = Array.from(picker.querySelectorAll(".picker-header-cb"));
+                    
+                    // Parse initial selections
+                    let selected = [];
+                    if (naCheckbox && naCheckbox.checked) {
+                        selected = ["__NA__"];
+                    } else {
+                        selected = headerCheckboxes.filter(cb => cb.checked).map(cb => cb.value).slice(0, maxSelected);
+                    }
 
                     const render = () => {
                         valueHolder.innerHTML = "";
-                        selected.forEach(value => {
+                        
+                        if (selected.includes("__NA__")) {
+                            if (naCheckbox) naCheckbox.checked = true;
+                            headerCheckboxes.forEach(cb => {
+                                cb.checked = false;
+                                const badge = cb.closest("label").querySelector(".picker-badge-order");
+                                badge.textContent = "";
+                                badge.style.background = "#fafafa";
+                                badge.style.borderColor = "#cbd5e1";
+                                badge.style.color = "var(--text-color)";
+                            });
+                            
                             const input = document.createElement("input");
                             input.type = "hidden";
-                            input.name = "ACCOUNT_NAME";
-                            input.value = value;
+                            input.name = "{{ target }}";
+                            input.value = "__NA__";
                             valueHolder.appendChild(input);
-                        });
+                            
+                            label.textContent = "N/A (Column Missing)";
+                            label.style.color = "#94a3b8";
+                            summary.style.borderColor = "#cbd5e1";
+                            summary.style.background = "white";
+                        } else {
+                            if (naCheckbox) naCheckbox.checked = false;
+                            
+                            selected.forEach(value => {
+                                const input = document.createElement("input");
+                                input.type = "hidden";
+                                input.name = "{{ target }}";
+                                input.value = value;
+                                valueHolder.appendChild(input);
+                            });
 
-                        checkboxes.forEach(cb => {
-                            const order = selected.indexOf(cb.value);
-                            const badge = cb.closest("label").querySelector("[data-order]");
-                            cb.checked = order !== -1;
-                            badge.textContent = order === -1 ? "" : String(order + 1);
-                        });
+                            headerCheckboxes.forEach(cb => {
+                                const order = selected.indexOf(cb.value);
+                                cb.checked = order !== -1;
+                                const badge = cb.closest("label").querySelector(".picker-badge-order");
+                                if (order === -1) {
+                                    badge.textContent = "";
+                                    badge.style.background = "#fafafa";
+                                    badge.style.borderColor = "#cbd5e1";
+                                    badge.style.color = "var(--text-color)";
+                                } else {
+                                    badge.textContent = String(order + 1);
+                                    badge.style.background = "var(--primary)";
+                                    badge.style.borderColor = "var(--primary)";
+                                    badge.style.color = "white";
+                                }
+                            });
 
-                        label.textContent = selected.length ? selected.join(" + ") : "-- Select Column --";
+                            if (selected.length) {
+                                label.textContent = selected.join(" + ");
+                                label.style.color = "#1e293b";
+                                summary.style.borderColor = "var(--success)";
+                                summary.style.background = "#f0fdf4";
+                            } else {
+                                label.textContent = "-- Select Column --";
+                                label.style.color = "#94a3b8";
+                                summary.style.borderColor = "#cbd5e1";
+                                summary.style.background = "white";
+                            }
+                        }
                     };
 
-                    checkboxes.forEach(cb => {
+                    if (naCheckbox) {
+                        naCheckbox.addEventListener("change", () => {
+                            if (naCheckbox.checked) {
+                                selected = ["__NA__"];
+                            } else {
+                                selected = [];
+                            }
+                            render();
+                        });
+                    }
+
+                    headerCheckboxes.forEach(cb => {
                         cb.addEventListener("change", () => {
                             if (cb.checked) {
+                                // Remove N/A if present
+                                selected = selected.filter(val => val !== "__NA__");
                                 if (!selected.includes(cb.value) && selected.length < maxSelected) {
                                     selected.push(cb.value);
                                 } else if (selected.length >= maxSelected) {
                                     cb.checked = false;
                                 }
                             } else {
-                                selected = selected.filter(value => value !== cb.value);
+                                selected = selected.filter(val => val !== cb.value);
                             }
                             render();
                         });
@@ -249,20 +329,6 @@
                     render();
                 })();
             </script>
-            {% else %}
-            <select name="{{ target }}" class="fancy-select" {% if file.mapped_fields[target] and
-                file.mapped_fields[target] !='__NA__' %}style="border-color: var(--success); background: #f0fdf4;" {%
-                endif %} required>
-                <option value="">-- Select Column --</option>
-                <option value="__NA__" {% if file.mapped_fields[target]=='__NA__' %}selected{% endif %}>N/A (Column
-                    Missing)</option>
-                {% for header in file.headers %}
-                <option value="{{ header }}" {% if file.mapped_fields[target]==header %}selected{% endif %}>
-                    {{ header }}
-                </option>
-                {% endfor %}
-            </select>
-            {% endif %}
         </div>
         {% endfor %}
         {% endif %}
