@@ -174,7 +174,7 @@
             <label>Additional Metadata Columns to Keep (uncheck to drop)</label>
             <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 10px;">
                 {% for h in file.headers %}
-                <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; font-size: 13px; color: #f8fafc;">
+                <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; font-size: 13px; color: #0a0e11;">
                     <input type="checkbox" name="keep_columns" value="{{ h }}" checked style="accent-color: var(--primary);">
                     {{ h }}
                 </label>
