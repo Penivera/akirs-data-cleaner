@@ -125,7 +125,12 @@ async def analyse_config(request: Request, file_id: str):
             "outflow_indicator", "OUTFLOW"
         )
         state.config["flow_filter"] = form_data.get("flow_filter", "All")
-        state.config["limit"] = int(form_data.get("limit", 50))
+        # Handle limit: can be empty/0 to show all records
+        limit_val = form_data.get("limit", "50").strip()
+        state.config["limit"] = int(limit_val) if limit_val else None
+        # Handle min_amount_filter: optional
+        min_amount_val = form_data.get("min_amount_filter", "").strip()
+        state.config["min_amount_filter"] = float(min_amount_val) if min_amount_val else None
         state.config["title"] = form_data.get("title", "DATA ANALYSIS REPORT")
         state.config["keep_columns"] = form_data.getlist("keep_columns")
         

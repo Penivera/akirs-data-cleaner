@@ -41,7 +41,9 @@ def generate_markdown_report(
     identity_col = config.get("identity_col")
     metric_col = config.get("metric_col")
     currency_col = config.get("currency_col")
-    limit = int(config.get("limit", 50))
+    limit_config = config.get("limit", 50)
+    # Handle limit: None, 0, or falsy = show all; otherwise use the number
+    limit = None if (limit_config is None or limit_config == 0) else int(limit_config)
     keep_columns = config.get("keep_columns", [])
     title = config.get("title", "DATA ANALYSIS REPORT").upper()
 
@@ -52,6 +54,9 @@ def generate_markdown_report(
     inflow_indicator = str(config.get("inflow_indicator", "INFLOW")).strip().upper()
     outflow_indicator = str(config.get("outflow_indicator", "OUTFLOW")).strip().upper()
     flow_filter = config.get("flow_filter", "All")
+    min_amount_filter = config.get("min_amount_filter", None)  # Optional: filter amounts above threshold
+    if min_amount_filter is not None:
+        min_amount_filter = parse_float(min_amount_filter)
 
     if (not identity_col or not metric_col) and not concat_order:
         raise ValueError(
@@ -199,7 +204,19 @@ def generate_markdown_report(
         key=lambda x: x[1].get("scaled_metric_sum", x[1]["metric_sum"]),
         reverse=True,
     )
-    top_n = sorted_groups[:limit]
+    
+    # Apply minimum amount filter if specified
+    if min_amount_filter is not None and min_amount_filter > 0:
+        sorted_groups = [
+            (k, v) for k, v in sorted_groups 
+            if abs(v.get("scaled_metric_sum", v["metric_sum"])) >= min_amount_filter
+        ]
+    
+    # Apply limit (None means show all records)
+    if limit is None or limit == 0:
+        top_n = sorted_groups
+    else:
+        top_n = sorted_groups[:limit]
 
     # Calculate some summary stats
     top_n_sum = sum(v["metric_sum"] for _, v in top_n)
@@ -226,8 +243,14 @@ def generate_markdown_report(
     lines.append(f"Metric Analyzed: {metric_col}")
     if currency_col:
         lines.append(f"Currency Grouping: {currency_col}")
+    if min_amount_filter and min_amount_filter > 0:
+        lines.append(f"Minimum Amount Filter: {format_currency(min_amount_filter)}")
     lines.append("")
-    lines.append(f"TOP {limit} BY {metric_col}:")
+    # Format header based on whether limit is set
+    if limit is None or limit == 0:
+        lines.append(f"ALL RECORDS BY {metric_col}:")
+    else:
+        lines.append(f"TOP {limit} BY {metric_col}:")
     lines.append("")
 
     most_active_k = ""
@@ -267,9 +290,15 @@ def generate_markdown_report(
         curr_label = f"({c_val})" if c_val else "(Default Currency)"
 
         lines.append(f"--- Breakdown {curr_label} ---")
-        lines.append(
-            f"- Total '{metric_col}' of Top {limit}: {format_currency(c_top_sum, c_val)}"
-        )
+        # Format summary based on whether limit is set
+        if limit is None or limit == 0:
+            lines.append(
+                f"- Total '{metric_col}' (All Records): {format_currency(c_top_sum, c_val)}"
+            )
+        else:
+            lines.append(
+                f"- Total '{metric_col}' of Top {limit}: {format_currency(c_top_sum, c_val)}"
+            )
         if c_top:
             lines.append(
                 f"- Highest Single '{metric_col}': {c_top[0][0][0]} ({format_currency(c_top[0][1]['metric_sum'], c_val)})"
@@ -336,6 +365,12 @@ def generate_cumulative_report(
     metric_col = config.get("metric_col")
     keep_columns = config.get("keep_columns", [])
     title = config.get("title", "CUMULATIVE TRANSACTIONS REPORT").upper()
+    limit_config = config.get("limit", 50)
+    # Handle limit: None, 0, or falsy = show all; otherwise use the number
+    limit = None if (limit_config is None or limit_config == 0) else int(limit_config)
+    min_amount_filter = config.get("min_amount_filter", None)  # Optional: filter amounts above threshold
+    if min_amount_filter is not None:
+        min_amount_filter = parse_float(min_amount_filter)
 
     if not nuban_col or not metric_col:
         raise ValueError(
@@ -391,6 +426,19 @@ def generate_cumulative_report(
     sorted_items = sorted(
         groups.items(), key=lambda x: x[1]["metric_sum"], reverse=True
     )
+    
+    # Apply minimum amount filter if specified
+    if min_amount_filter is not None and min_amount_filter > 0:
+        sorted_items = [
+            (k, v) for k, v in sorted_items 
+            if abs(v["metric_sum"]) >= min_amount_filter
+        ]
+    
+    # Apply limit (None means show all records)
+    if limit is None or limit == 0:
+        display_items = sorted_items
+    else:
+        display_items = sorted_items[:limit]
 
     lines = []
     lines.append(title)
@@ -399,12 +447,17 @@ def generate_cumulative_report(
     lines.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append(f"Data Source: {state.original_filename}")
     lines.append(f"Total Transactions Parsed: {total_rows}")
+    if min_amount_filter and min_amount_filter > 0:
+        lines.append(f"Minimum Amount Filter: {format_currency(min_amount_filter)}")
+    lines.append("")
+    # Format header based on whether limit is set
+    if limit is None or limit == 0:
+        lines.append(f"ALL ACCOUNTS BY {metric_col}:")
+    else:
+        lines.append(f"TOP {limit} ACCOUNTS BY {metric_col}:")
     lines.append("")
 
-    lines.append(f"TOP {len(sorted_items)} ACCOUNTS BY {metric_col}:")
-    lines.append("")
-
-    for idx, (nuban, data) in enumerate(sorted_items, 1):
+    for idx, (nuban, data) in enumerate(display_items, 1):
         lines.append(f"{idx}. {nuban} - Total: {format_currency(data['metric_sum'])}")
         lines.append(f"   Transactions: {data['count']}")
         if data["count"] > 0:
