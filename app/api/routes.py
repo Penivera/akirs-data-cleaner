@@ -235,6 +235,7 @@ async def save_mapping(request: Request, file_id: str):
         state.output_pattern = form_data.get("output_pattern") or "{filename}"
         state.verify_db = form_data.get("verify_db") == "true"
         state.verify_db_query_field = form_data.get("verify_db_query_field") or ""
+        state.verify_db_target_column = form_data.get("verify_db_target_column") or "ANY"
         state.verify_db_fuzzy = form_data.get("verify_db_fuzzy") == "true"
 
         if state.preset_name == "custom":
@@ -345,6 +346,7 @@ async def process_file(request: Request, file_id: str):
                     records,
                     fields,
                     query_field=getattr(state, "verify_db_query_field", ""),
+                    db_target_column=getattr(state, "verify_db_target_column", "ANY"),
                     fuzzy_match=getattr(state, "verify_db_fuzzy", False)
                 )
                 db_matches = []
@@ -424,6 +426,7 @@ async def resolve_duplicates(request: Request, file_id: str):
                 resolved_records,
                 fields,
                 query_field=getattr(state, "verify_db_query_field", ""),
+                db_target_column=getattr(state, "verify_db_target_column", "ANY"),
                 fuzzy_match=getattr(state, "verify_db_fuzzy", False)
             )
             db_matches = []

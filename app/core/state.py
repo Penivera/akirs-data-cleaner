@@ -31,6 +31,7 @@ class FileState:
     health_report: Optional[Dict[str, Any]]
     verify_db: bool
     verify_db_query_field: Optional[str]
+    verify_db_target_column: str
     verify_db_fuzzy: bool
     db_matches: List[Dict[str, Any]]
     db_decisions: Dict[str, str]
@@ -62,6 +63,7 @@ class FileState:
         self.health_report = None
         self.verify_db = False
         self.verify_db_query_field = ""
+        self.verify_db_target_column = "ANY"
         self.verify_db_fuzzy = False
         self.db_matches = []
         self.db_decisions = {}
@@ -236,6 +238,9 @@ class IntelSyncState:
     unique_records_count: int
     unique_path: Optional[str] = None
     unique_filename: Optional[str] = None
+    verify_db_query_field: str
+    verify_db_target_column: str
+    verify_db_fuzzy: bool
 
     def __init__(self):
         self.id = str(uuid.uuid4())
@@ -250,6 +255,9 @@ class IntelSyncState:
         self.unique_records_count = 0
         self.unique_path = None
         self.unique_filename = None
+        self.verify_db_query_field = ""
+        self.verify_db_target_column = "ANY"
+        self.verify_db_fuzzy = False
 
 intelsync_db: Dict[str, IntelSyncState] = {}
 

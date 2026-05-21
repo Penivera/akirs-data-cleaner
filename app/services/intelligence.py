@@ -22,7 +22,7 @@ def compute_jaccard_similarity(s1: str, s2: str) -> float:
         return 0.0
     return len(w1.intersection(w2)) / len(w1.union(w2))
 
-async def check_db_record(query: str, fuzzy_match: bool = False) -> Optional[Dict[str, Any]]:
+async def check_db_record(query: str, db_target_column: str = "ANY", fuzzy_match: bool = False) -> Optional[Dict[str, Any]]:
     """
     Query the live search endpoint to find an existing record in the database.
     Supports strict search or token-based fuzzy similarity checking.
@@ -68,17 +68,28 @@ async def check_db_record(query: str, fuzzy_match: bool = False) -> Optional[Dic
                         email = str(item.get("email", "")).strip().lower()
                         phone = str(item.get("phone", "")).strip().lower()
                         
+                        match_found = False
                         # Check exact/substring matches first
-                        if q_lower in name or q_lower in email or q_lower in phone:
+                        if db_target_column in ("ANY", "NAME") and q_lower in name:
+                            match_found = True
+                        elif db_target_column in ("ANY", "EMAIL") and q_lower in email:
+                            match_found = True
+                        elif db_target_column in ("ANY", "PHONE") and q_lower in phone:
+                            match_found = True
+
+                        if match_found:
                             return item
 
                         # If fuzzy matching is enabled, compute Jaccard token similarity
                         if fuzzy_match:
-                            score = max(
-                                compute_jaccard_similarity(query_str, name),
-                                compute_jaccard_similarity(query_str, email),
-                                compute_jaccard_similarity(query_str, phone)
-                            )
+                            score = 0.0
+                            if db_target_column in ("ANY", "NAME"):
+                                score = max(score, compute_jaccard_similarity(query_str, name))
+                            if db_target_column in ("ANY", "EMAIL"):
+                                score = max(score, compute_jaccard_similarity(query_str, email))
+                            if db_target_column in ("ANY", "PHONE"):
+                                score = max(score, compute_jaccard_similarity(query_str, phone))
+                                
                             if score > best_score:
                                 best_score = score
                                 best_match = item
@@ -93,7 +104,7 @@ async def check_db_record(query: str, fuzzy_match: bool = False) -> Optional[Dic
     
     return None
 
-async def check_records_batch(queries: List[str], fuzzy_match: bool = False) -> List[Optional[Dict[str, Any]]]:
+async def check_records_batch(queries: List[str], db_target_column: str = "ANY", fuzzy_match: bool = False) -> List[Optional[Dict[str, Any]]]:
     """
     Runs parallel lookups against the search API using asyncio.Semaphore to throttle concurrency.
     """
@@ -103,7 +114,7 @@ async def check_records_batch(queries: List[str], fuzzy_match: bool = False) -> 
         if not q or len(str(q).strip()) < 3:
             return None
         async with sem:
-            return await check_db_record(q, fuzzy_match)
+            return await check_db_record(q, db_target_column, fuzzy_match)
             
     tasks = [worker(q) for q in queries]
     return await asyncio.gather(*tasks)
@@ -112,6 +123,7 @@ async def check_file_records_against_db(
     records: List[Dict[str, Any]],
     fields: List[str],
     query_field: Optional[str] = None,
+    db_target_column: str = "ANY",
     fuzzy_match: bool = False
 ) -> List[Tuple[Dict[str, Any], Optional[Dict[str, Any]]]]:
     """
@@ -145,5 +157,5 @@ async def check_file_records_against_db(
                 
         queries.append(q_val)
         
-    results = await check_records_batch(queries, fuzzy_match)
+    results = await check_records_batch(queries, db_target_column, fuzzy_match)
     return list(zip(records, results))

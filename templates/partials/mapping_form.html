@@ -108,6 +108,16 @@
                     </select>
                 </div>
 
+                <div style="margin-top: 0.5rem;">
+                    <label style="font-size: 10px; font-weight: bold; color: #475569; display: block; margin-bottom: 2px;">PROD DB TARGET COLUMN:</label>
+                    <select name="verify_db_target_column" class="fancy-select" style="height: 32px; padding: 2px 28px 2px 8px; font-size: 12px; margin: 0; width: 100%; border-radius: 4px;">
+                        <option value="ANY" {% if file.verify_db_target_column == 'ANY' %}selected{% endif %}>Any Column (Name, Email, or Phone)</option>
+                        <option value="NAME" {% if file.verify_db_target_column == 'NAME' %}selected{% endif %}>Taxpayer Name</option>
+                        <option value="EMAIL" {% if file.verify_db_target_column == 'EMAIL' %}selected{% endif %}>Email Address</option>
+                        <option value="PHONE" {% if file.verify_db_target_column == 'PHONE' %}selected{% endif %}>Phone Number</option>
+                    </select>
+                </div>
+
                 <div style="margin-top: 0.5rem; display: flex; align-items: center; gap: 8px; background: #f8fafc; border: 1px solid #e2e8f0; padding: 6px 10px; border-radius: 4px;">
                     <input type="checkbox" name="verify_db_fuzzy" value="true" {% if file.verify_db_fuzzy %}checked{% endif %} style="width: 14px; height: 14px; accent-color: var(--primary); cursor: pointer;">
                     <span style="font-size: 11px; color: #475569; font-weight: 600;">Enable Fuzzy Jaccard Suggestions</span>

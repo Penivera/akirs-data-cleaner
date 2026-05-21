@@ -100,7 +100,7 @@ async def get_intel_config_form(request: Request, file_id: str):
     return templates.TemplateResponse(
         request=request,
         name="partials/intelligence_config_form.html",
-        context={"request": request, "file": state, "preview_rows": preview_rows},
+        context={"request": request, "file": state, "preview_rows": preview_rows, "targets": PRESETS["intelligence"]["fields"]},
     )
 
 @router.post("/api/intel/save-config/{file_id}", response_class=HTMLResponse)
@@ -110,6 +110,10 @@ async def save_intel_config(request: Request, file_id: str):
         return "File not found"
         
     form_data = await request.form()
+    
+    state.verify_db_query_field = form_data.get("verify_db_query_field") or ""
+    state.verify_db_target_column = form_data.get("verify_db_target_column") or "ANY"
+    state.verify_db_fuzzy = form_data.get("verify_db_fuzzy") == "true"
     
     if form_data.getlist("selected_sheets"):
         state.selected_sheets = form_data.getlist("selected_sheets")
@@ -156,7 +160,13 @@ async def process_intel_sync(state: IntelSyncState):
     )
 
     # Parallel live database checking
-    matches_zipped = await check_file_records_against_db(records, fields)
+    matches_zipped = await check_file_records_against_db(
+        records, 
+        fields,
+        query_field=getattr(state, "verify_db_query_field", ""),
+        db_target_column=getattr(state, "verify_db_target_column", "ANY"),
+        fuzzy_match=getattr(state, "verify_db_fuzzy", False)
+    )
     
     matched_records = []
     unique_records = []
