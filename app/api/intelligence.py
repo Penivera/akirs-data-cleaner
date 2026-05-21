@@ -68,7 +68,7 @@ async def intel_upload(request: Request, file: List[UploadFile] = File(...)):
                 state.status = "Needs Sheet"
             else:
                 state.selected_sheets = [sheet_names[0]] if sheet_names else [""]
-                await process_intel_sync(state)
+                state.status = "Needs Config"
 
         except Exception as e:
             state.status = f"Error: {str(e)}"
