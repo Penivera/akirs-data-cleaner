@@ -28,7 +28,9 @@ share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
+MANIFEST(.venv) rcherki10@rcherki10-HP-EliteBook-840-G4:~/Projects/akirs-data-cleaner$ git push -u origin main 
+fatal: unable to access 'https://github.com/Penivera/akirs-data-cleaner/': Could not resolve host: github.com
+(.venv) rcherki10@rcherki10-HP-EliteBook-840-G4:~/Projects/akirs-data-cleaner$ 
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -148,7 +150,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
-
+run/
 # Spyder project settings
 .spyderproject
 .spyproject

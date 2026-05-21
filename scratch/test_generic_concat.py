@@ -83,7 +83,7 @@ def run_test():
         # NUBAN
         assert rec1[2] == "1234567890", f"Expected '1234567890', got '{rec1[2]}'"
         
-        print("✓ All assertions PASSED! Generic concatenation and custom separators work flawlessly!")
+        print("All assertions PASSED! Generic concatenation and custom separators work flawlessly!")
         
     finally:
         if os.path.exists(temp_csv):

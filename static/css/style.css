@@ -76,8 +76,8 @@ body {
 }
 
 .akirs-logo {
-    width: 44px;
-    height: 44px;
+    width: 50px;
+    height: 50px;
     background: white;
     padding: 0.15rem;
     border-radius: 50%;
@@ -105,7 +105,8 @@ body {
 /* Navigation tabs */
 .top-nav {
     display: flex;
-    gap: 1rem;
+    flex-wrap: wrap;
+    gap: 0.75rem;
     margin-bottom: 2rem;
     background: white;
     padding: 0.5rem;
@@ -117,6 +118,9 @@ body {
 .nav-item {
     display: flex;
     align-items: center;
+    justify-content: center;
+    flex: 1;
+    min-width: 160px;
     gap: 0.5rem;
     padding: 0.75rem 1.5rem;
     color: #475569;
