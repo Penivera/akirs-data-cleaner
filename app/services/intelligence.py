@@ -100,7 +100,8 @@ async def check_db_record(query: str, db_target_column: str = "ANY", fuzzy_match
             elif response.status_code == 401:
                 logger.warning("Token expired or unauthorized (401) on search check.")
     except Exception as e:
-        logger.error(f"Error calling live search endpoint: {e}")
+        logger.error(f"Error calling live search endpoint: {e!r}")
+        logger.error(f"response: {response!r}")
     
     return None
 
