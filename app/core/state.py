@@ -30,6 +30,8 @@ class FileState:
     output_pattern: str
     health_report: Optional[Dict[str, Any]]
     verify_db: bool
+    verify_db_query_field: Optional[str]
+    verify_db_fuzzy: bool
     db_matches: List[Dict[str, Any]]
     db_decisions: Dict[str, str]
 
@@ -59,6 +61,8 @@ class FileState:
         self.output_pattern = "{filename}"
         self.health_report = None
         self.verify_db = False
+        self.verify_db_query_field = ""
+        self.verify_db_fuzzy = False
         self.db_matches = []
         self.db_decisions = {}
 
@@ -248,3 +252,47 @@ class IntelSyncState:
         self.unique_filename = None
 
 intelsync_db: Dict[str, IntelSyncState] = {}
+
+import pickle
+import os
+
+DB_DIR = "uploads"
+DB_FILE = os.path.join(DB_DIR, "state_database.pkl")
+
+def save_all_states():
+    os.makedirs(DB_DIR, exist_ok=True)
+    try:
+        temp_file = DB_FILE + ".tmp"
+        data = {
+            "file_db": file_db,
+            "analysis_db": analysis_db,
+            "nuban_db": nuban_db,
+            "intelsync_db": intelsync_db,
+        }
+        with open(temp_file, "wb") as f:
+            pickle.dump(data, f)
+        os.replace(temp_file, DB_FILE)
+    except Exception as e:
+        print(f"Error persisting states: {e}")
+
+def load_all_states():
+    global file_db, analysis_db, nuban_db, intelsync_db
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, "rb") as f:
+                data = pickle.load(f)
+                file_db.clear()
+                file_db.update(data.get("file_db", {}))
+                analysis_db.clear()
+                analysis_db.update(data.get("analysis_db", {}))
+                nuban_db.clear()
+                nuban_db.update(data.get("nuban_db", {}))
+                intelsync_db.clear()
+                intelsync_db.update(data.get("intelsync_db", {}))
+                print(f"Successfully loaded persisted states from {DB_FILE} ({len(file_db)} files, {len(intelsync_db)} syncs)")
+                return
+        except Exception as e:
+            print(f"Error loading persisted states: {e}")
+
+# Initial load
+load_all_states()

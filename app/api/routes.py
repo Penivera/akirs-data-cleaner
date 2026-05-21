@@ -7,7 +7,7 @@ import time
 from io import BytesIO
 from typing import Dict, Any, List
 
-from app.core.state import file_db, FileState, TARGET_FIELDS, PRESETS
+from app.core.state import file_db, FileState, TARGET_FIELDS, PRESETS, save_all_states
 from app.services.cleaner import (
     auto_map_headers,
     extract_records,
@@ -120,6 +120,7 @@ async def upload_file(request: Request, file: List[UploadFile] = File(...)):
             state.status = f"Error: {str(e)}"
 
         file_db[state.id] = state
+        save_all_states()
         processed_states.append(state)
 
     # Determine display targets for cards
@@ -233,6 +234,8 @@ async def save_mapping(request: Request, file_id: str):
         state.primary_key_field = form_data.get("primary_key_field") or ""
         state.output_pattern = form_data.get("output_pattern") or "{filename}"
         state.verify_db = form_data.get("verify_db") == "true"
+        state.verify_db_query_field = form_data.get("verify_db_query_field") or ""
+        state.verify_db_fuzzy = form_data.get("verify_db_fuzzy") == "true"
 
         if state.preset_name == "custom":
             custom_raw = form_data.get("custom_fields", "")
@@ -285,6 +288,7 @@ async def save_mapping(request: Request, file_id: str):
     else:
         fields = PRESETS.get(state.preset_name, PRESETS["retail"])["fields"]
 
+    save_all_states()
     return templates.TemplateResponse(
         request=request,
         name="partials/file_card.html",
@@ -296,6 +300,7 @@ async def save_mapping(request: Request, file_id: str):
 async def delete_file(file_id: str):
     if file_id in file_db:
         del file_db[file_id]
+        save_all_states()
     return Response(status_code=204)
 
 
@@ -336,7 +341,12 @@ async def process_file(request: Request, file_id: str):
             # Check against live DB
             has_db_matches = False
             if getattr(state, "verify_db", False):
-                matches_zipped = await check_file_records_against_db(records, fields)
+                matches_zipped = await check_file_records_against_db(
+                    records,
+                    fields,
+                    query_field=getattr(state, "verify_db_query_field", ""),
+                    fuzzy_match=getattr(state, "verify_db_fuzzy", False)
+                )
                 db_matches = []
                 for uploaded_rec, db_rec in matches_zipped:
                     if db_rec:
@@ -357,6 +367,7 @@ async def process_file(request: Request, file_id: str):
     except Exception as e:
         state.status = f"Failed ({str(e)})"
 
+    save_all_states()
     return templates.TemplateResponse(
         request=request,
         name="partials/file_card.html",
@@ -409,7 +420,12 @@ async def resolve_duplicates(request: Request, file_id: str):
         # Check resolved records against live DB
         has_db_matches = False
         if getattr(state, "verify_db", False):
-            matches_zipped = await check_file_records_against_db(resolved_records, fields)
+            matches_zipped = await check_file_records_against_db(
+                resolved_records,
+                fields,
+                query_field=getattr(state, "verify_db_query_field", ""),
+                fuzzy_match=getattr(state, "verify_db_fuzzy", False)
+            )
             db_matches = []
             for uploaded_rec, db_rec in matches_zipped:
                 if db_rec:
@@ -432,6 +448,7 @@ async def resolve_duplicates(request: Request, file_id: str):
     except Exception as e:
         state.status = f"Failed ({str(e)})"
 
+    save_all_states()
     return templates.TemplateResponse(
         request=request,
         name="partials/file_card.html",
@@ -480,6 +497,7 @@ async def resolve_db(request: Request, file_id: str):
     except Exception as e:
         state.status = f"Failed ({str(e)})"
         
+    save_all_states()
     return templates.TemplateResponse(
         request=request,
         name="partials/file_card.html",

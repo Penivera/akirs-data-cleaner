@@ -97,7 +97,22 @@
                     <input type="checkbox" name="verify_db" value="true" {% if file.verify_db %}checked{% endif %} style="width: 18px; height: 18px; accent-color: var(--primary); cursor: pointer;">
                     <span style="font-size: 13px; font-weight: 500; color: #334155;">Verify & Deduplicate vs. DB</span>
                 </div>
-                <small style="color: #64748b; font-size: 0.75rem; margin-top: 5px; display: block;">Query the live database in parallel to flag matching records.</small>
+                
+                <div style="margin-top: 0.5rem;">
+                    <label style="font-size: 10px; font-weight: bold; color: #475569; display: block; margin-bottom: 2px;">Search Query Mapped Field:</label>
+                    <select name="verify_db_query_field" class="fancy-select" style="height: 32px; padding: 2px 28px 2px 8px; font-size: 12px; margin: 0; width: 100%; border-radius: 4px;">
+                        <option value="" {% if not file.verify_db_query_field %}selected{% endif %}>Auto-Detect (Name/Email/Phone)</option>
+                        {% for target in targets %}
+                        <option value="{{ target }}" {% if file.verify_db_query_field == target %}selected{% endif %}>Query by {{ target }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div style="margin-top: 0.5rem; display: flex; align-items: center; gap: 8px; background: #f8fafc; border: 1px solid #e2e8f0; padding: 6px 10px; border-radius: 4px;">
+                    <input type="checkbox" name="verify_db_fuzzy" value="true" {% if file.verify_db_fuzzy %}checked{% endif %} style="width: 14px; height: 14px; accent-color: var(--primary); cursor: pointer;">
+                    <span style="font-size: 11px; color: #475569; font-weight: 600;">Enable Fuzzy Jaccard Suggestions</span>
+                </div>
+                <small style="color: #64748b; font-size: 0.725rem; margin-top: 5px; display: block;">Query the live database in parallel to flag matching records.</small>
             </div>
         </div>
 
