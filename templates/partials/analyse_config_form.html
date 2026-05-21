@@ -109,8 +109,13 @@
         </div>
         
         <div class="mapping-row" style="grid-column: 1 / -1; max-width: 300px;">
-            <label>Sort Limit (Top X Records) <br><small style="color: #64748b; font-size: 0.75rem;">(e.g., 50 means Top 50 Spenders)</small></label>
-            <input type="number" name="limit" class="fancy-select" value="{{ file.config.get('limit', 50) }}" required>
+            <label>Sort Limit (Top X Records) <br><small style="color: #64748b; font-size: 0.75rem;">(e.g., 50 means Top 50 Spenders. use 0 to show ALL records)</small></label>
+            <input type="number" name="limit" class="fancy-select" value="{{ file.config.get('limit', 50) }}">
+        </div>
+
+        <div class="mapping-row" style="grid-column: 1 / -1; max-width: 300px;">
+            <label>Minimum Amount Filter (Optional) <br><small style="color: #64748b; font-size: 0.75rem;">(e.g., 25000000 to show only amounts > 25 million NGN)</small></label>
+            <input type="number" name="min_amount_filter" class="fancy-select" value="{{ file.config.get('min_amount_filter', '') }}" placeholder="Leave blank for no filter" step="0.01">
         </div>
 
         <!-- Identity Concatenation Configuration -->
