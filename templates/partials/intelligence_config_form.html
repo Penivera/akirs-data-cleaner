@@ -1,0 +1,20 @@
+<form class="mapping-form" hx-post="/api/intel/save-config/{{ file.id }}" hx-target="#intel-file-{{ file.id }}" hx-swap="outerHTML"
+    style="background: white; border: 1px solid #e2e8f0; border-radius: 0.75rem; padding: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); margin-top: 1.5rem;">
+    <h3 style="font-family: var(--font-heading); font-size: 1.25rem; font-weight: 700; color: var(--accent); margin-bottom: 1rem; border-bottom: 2px solid var(--accent-light); padding-bottom: 0.5rem;">
+        Configure Target Worksheet
+    </h3>
+    
+    <div class="mapping-row">
+        <label>SELECT SHEET TO INGEST</label>
+        <select name="selected_sheets" class="fancy-select" style="margin-top: 5px;" required>
+            {% for sheet in file.sheet_names %}
+            <option value="{{ sheet }}">{{ sheet }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="form-actions" style="margin-top: 1.5rem; display: flex; justify-content: flex-end; gap: 1rem; border-top: 1px solid #cbd5e1; padding-top: 1.25rem;">
+        <button type="button" class="btn btn-outline" onclick="this.closest('form').remove()">Cancel</button>
+        <button type="submit" class="btn" style="background: var(--accent); border-color: var(--accent); color: white;">Run Deduplication Audit</button>
+    </div>
+</form>

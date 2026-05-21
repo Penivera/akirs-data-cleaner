@@ -52,7 +52,7 @@
             <div>
                 <label>Output Filename Pattern</label>
                 <input type="text" name="output_pattern" class="fancy-select" value="{{ file.output_pattern }}"
-                    placeholder="{filename}" style="margin-top: 0.25rem;" required>
+                     placeholder="{filename}" style="margin-top: 0.25rem;" required>
                 <small style="color: #64748b; font-size: 0.75rem; margin-top: 2px; display: block;">Use
                     <code>{filename}</code> as a placeholder for the original file name.</small>
             </div>
@@ -86,6 +86,18 @@
                     value="{{ file.primary_key_field }}">
                 <small style="color: #64748b; font-size: 0.75rem; margin-top: 2px; display: block;">Group exact key
                     matches, or run Sorted Neighborhood fuzzy similarity checks on absent keys.</small>
+            </div>
+
+            <div>
+                <label style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                    <span>Intelligence DB Verification</span>
+                    <span style="font-size: 11px; font-weight: bold; color: var(--accent);">LIVE CHECK</span>
+                </label>
+                <div style="margin-top: 0.25rem; display: flex; align-items: center; gap: 10px; background: white; border: 1px solid #cbd5e1; padding: 8px 12px; border-radius: 6px; height: 42px; box-sizing: border-box;">
+                    <input type="checkbox" name="verify_db" value="true" {% if file.verify_db %}checked{% endif %} style="width: 18px; height: 18px; accent-color: var(--primary); cursor: pointer;">
+                    <span style="font-size: 13px; font-weight: 500; color: #334155;">Verify & Deduplicate vs. DB</span>
+                </div>
+                <small style="color: #64748b; font-size: 0.75rem; margin-top: 5px; display: block;">Query the live database in parallel to flag matching records.</small>
             </div>
         </div>
 

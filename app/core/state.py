@@ -29,6 +29,9 @@ class FileState:
     primary_key_field: Optional[str]
     output_pattern: str
     health_report: Optional[Dict[str, Any]]
+    verify_db: bool
+    db_matches: List[Dict[str, Any]]
+    db_decisions: Dict[str, str]
 
     def __init__(self):
         self.id = str(uuid.uuid4())
@@ -55,6 +58,9 @@ class FileState:
         self.primary_key_field = "NUBAN"
         self.output_pattern = "{filename}"
         self.health_report = None
+        self.verify_db = False
+        self.db_matches = []
+        self.db_decisions = {}
 
 
 # Global state to keep track of uploaded files in memory
@@ -210,3 +216,35 @@ class NubanState:
         self.resolved_filename = None
 
 nuban_db: Dict[str, NubanState] = {}
+
+class IntelSyncState:
+    id: str
+    original_filename: str
+    saved_path: str
+    headers: List[str]
+    sheet_names: List[str]
+    selected_sheets: List[str]
+    status: str
+    upload_hash: str
+    upload_size: int
+    uploaded_at: float
+    matched_records: List[Dict[str, Any]]
+    unique_records_count: int
+    unique_path: Optional[str] = None
+    unique_filename: Optional[str] = None
+
+    def __init__(self):
+        self.id = str(uuid.uuid4())
+        self.headers = []
+        self.sheet_names = []
+        self.selected_sheets = []
+        self.status = "New"
+        self.upload_hash = ""
+        self.upload_size = 0
+        self.uploaded_at = 0.0
+        self.matched_records = []
+        self.unique_records_count = 0
+        self.unique_path = None
+        self.unique_filename = None
+
+intelsync_db: Dict[str, IntelSyncState] = {}

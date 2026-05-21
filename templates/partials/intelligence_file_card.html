@@ -1,0 +1,71 @@
+<div class="file-card custom-preset" id="intel-file-{{ file.id }}" style="border-left-color: var(--accent);">
+    <div class="file-header">
+        <div class="file-info">
+            <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                <span class="file-name" style="font-weight: bold; font-size: 1.1rem; color: #1e293b;">{{ file.original_filename }}</span>
+                <span class="badge" style="background: var(--accent-light); color: var(--accent); font-weight: bold; font-size: 11px;">DB Sync</span>
+            </div>
+
+            <div class="file-meta" style="font-size: 12px; color: #64748b; margin-top: 4px;">
+                Uploaded {{ file.uploaded_at | datetimeformat if datetimeformat else 'just now' }} &bull;
+                Size: {{ (file.upload_size / 1024) | round(1) }} KB
+            </div>
+
+            <div class="file-status-indicator status-ready" style="margin-top: 0.5rem;">
+                <span class="status-dot" style="background: var(--accent);"></span>
+                <span style="font-weight: 600; color: #475569;">{{ file.status }}</span>
+            </div>
+        </div>
+
+        <div class="file-actions" style="display: flex; gap: 0.5rem; align-items: center;">
+            {% if 'Synced' in file.status and file.unique_filename %}
+            <a href="/api/download/{{ file.unique_filename }}" class="btn btn-accent" download style="text-decoration: none; font-weight: bold; background: var(--accent); border-color: var(--accent);">
+                📥 Download Unique Only
+            </a>
+            {% elif 'Needs Sheet' in file.status %}
+            <button class="btn btn-accent" hx-post="/api/intel/config-form/{{ file.id }}" hx-target="#intel-mapping-area-{{ file.id }}">
+                🛠️ Select Sheet
+            </button>
+            {% endif %}
+
+            <button class="btn btn-danger" hx-delete="/api/intel/delete/{{ file.id }}" hx-target="#intel-file-{{ file.id }}" hx-swap="delete" title="Remove File" style="padding: 0.625rem 0.875rem;">
+                ❌
+            </button>
+        </div>
+    </div>
+
+    <!-- Collapsible Existing Records Popup Audit -->
+    {% if file.matched_records %}
+    <details open style="margin-top: 1.25rem; background: #fffbeb; border: 1px solid #fef3c7; padding: 12px; border-radius: 8px; box-shadow: inset 0 1px 2px rgba(0,0,0,0.02);">
+        <summary style="font-weight: bold; color: #b45309; cursor: pointer; font-size: 13px; outline: none; margin-bottom: 8px;">
+            ⚠️ Audit Check: View {{ file.matched_records | length }} Records Found in database
+        </summary>
+        <div class="table-container" style="margin: 0; max-height: 250px; overflow-y: auto; border: 1px solid #fef3c7; border-radius: 6px;">
+            <table class="fancy-table" style="margin-bottom: 0;">
+                <thead style="background: #fffbeb;">
+                    <tr>
+                        <th style="color: #b45309; font-weight: bold;">Taxpayer Name</th>
+                        <th style="color: #b45309; font-weight: bold;">Email</th>
+                        <th style="color: #b45309; font-weight: bold;">Phone</th>
+                        <th style="color: #b45309; font-weight: bold;">Nature of Business</th>
+                        <th style="color: #b45309; font-weight: bold;">Address</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for rec in file.matched_records %}
+                    <tr style="background: white;">
+                        <td style="font-weight: bold; color: #b45309;">{{ rec.taxPayerName }}</td>
+                        <td style="color: #475569;">{{ rec.email or 'N/A' }}</td>
+                        <td style="color: #475569;">{{ rec.phone or 'N/A' }}</td>
+                        <td style="color: #475569;">{{ rec.natureOfBusiness or 'N/A' }}</td>
+                        <td style="color: #475569;">{{ rec.address or 'N/A' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </details>
+    {% endif %}
+
+    <div id="intel-mapping-area-{{ file.id }}" class="mapping-area"></div>
+</div>

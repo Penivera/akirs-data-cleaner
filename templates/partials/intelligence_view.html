@@ -1,0 +1,30 @@
+<section class="upload-zone" id="intel-upload-zone">
+    <form id="intel-upload-form" hx-post="/api/intel/upload" hx-target="#intel-file-list" hx-swap="afterbegin"
+        hx-trigger="change from:#intelpfileElem" enctype="multipart/form-data">
+        <div class="drop-area" style="border: 2px dashed var(--accent); background: #fdfaf7;">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+            <h3 style="color: var(--accent); margin-top: 1rem; font-family: var(--font-heading); font-weight: 700;">Live Intelligence DB Synchronization</h3>
+            <p style="color: #64748b; font-size: 0.9rem; margin-bottom: 1.5rem;">
+                Upload a data file (Excel/CSV). The system will search the live database in parallel, render a list of what already exists, and output a downloadable CSV containing <strong>only new unique records</strong>.
+            </p>
+            <label for="intelpfileElem" class="btn upload-pick-btn" style="background: var(--accent); border-color: var(--accent); color: white;">Choose Sync File</label>
+            <input type="file" id="intelpfileElem" name="file" multiple accept=".xlsx, .xls, .csv" style="display: none;">
+        </div>
+    </form>
+</section>
+
+<section class="file-list-container" style="margin-top: 2.5rem;">
+    <h2 style="font-family: var(--font-heading); font-size: 1.5rem; font-weight: 700; color: var(--accent); margin-bottom: 1.25rem;">
+        Sync Audit Queue
+    </h2>
+    <div id="intel-file-list" class="file-list">
+        {% for file in files %}
+        {% include 'partials/intelligence_file_card.html' %}
+        {% endfor %}
+    </div>
+</section>
