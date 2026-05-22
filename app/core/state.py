@@ -170,8 +170,10 @@ class AnalysisState:
             "metric_col": "",
             "currency_col": "",
             "flow_type_col": "",
-            "inflow_indicator": "INFLOW",
-            "outflow_indicator": "OUTFLOW",
+            "credit_col": "",
+            "debit_col": "",
+            "inflow_indicator": "CR",
+            "outflow_indicator": "DR",
             "flow_filter": "All",
             "limit": 50,
             "title": "DATA ANALYSIS REPORT",
@@ -179,7 +181,8 @@ class AnalysisState:
             "concat_order": {},
             "concat_separator": " ",
             "cumulate_by_nuban": False,
-            "nuban_col": ""
+            "nuban_col": "",
+            "min_amount_filter": None
         }
         self.report_path = ""
         self.upload_hash = ""

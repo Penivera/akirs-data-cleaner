@@ -59,8 +59,8 @@
         </div>
 
         <div class="mapping-row">
-            <label>What are we measuring? <br><small style="color: #64748b; font-size: 0.75rem;">(e.g., Amount, Balance, Debit size)</small></label>
-            <select name="metric_col" class="fancy-select" required>
+            <label>What are we measuring? <br><small style="color: #64748b; font-size: 0.75rem;">(e.g., Amount, Balance, or Debit size. Optional if you select separate Credit/Debit columns below)</small></label>
+            <select name="metric_col" class="fancy-select">
                 <option value="">-- Select Numeric Column to Sum --</option>
                 {% for h in file.headers %}
                 <option value="{{ h }}" {% if file.config.get('metric_col') == h %}selected{% endif %}>{{ h }}</option>
@@ -88,23 +88,45 @@
             </select>
         </div>
         
+        <div class="mapping-row">
+            <label>Credit Column <br><small style="color: #64748b; font-size: 0.75rem;">(Optional: column containing credit amounts. Auto-detected as inflow. Works with Debit column as an alternative to Metric column.)</small></label>
+            <select name="credit_col" class="fancy-select">
+                <option value="">-- None --</option>
+                {% for h in file.headers %}
+                <option value="{{ h }}" {% if file.config.get('credit_col') == h %}selected{% endif %}>{{ h }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="mapping-row">
+            <label>Debit Column <br><small style="color: #64748b; font-size: 0.75rem;">(Optional: column containing debit amounts. Auto-detected as outflow. Must pair with Credit column.)</small></label>
+            <select name="debit_col" class="fancy-select">
+                <option value="">-- None --</option>
+                {% for h in file.headers %}
+                <option value="{{ h }}" {% if file.config.get('debit_col') == h %}selected{% endif %}>{{ h }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        
         <div class="mapping-row" style="display: flex; gap: 10px;">
             <div style="flex: 1;">
                 <label>Inflow Indicator</label>
-                <input type="text" name="inflow_indicator" class="fancy-select" value="{{ file.config.get('inflow_indicator', 'INFLOW') }}" placeholder="e.g. CR">
+                <input type="text" name="inflow_indicator" class="fancy-select" value="{{ file.config.get('inflow_indicator', 'CR') }}" placeholder="e.g. CR or CREDIT">
             </div>
             <div style="flex: 1;">
                 <label>Outflow Indicator</label>
-                <input type="text" name="outflow_indicator" class="fancy-select" value="{{ file.config.get('outflow_indicator', 'OUTFLOW') }}" placeholder="e.g. DR">
+                <input type="text" name="outflow_indicator" class="fancy-select" value="{{ file.config.get('outflow_indicator', 'DR') }}" placeholder="e.g. DR or DEBIT">
             </div>
         </div>
 
         <div class="mapping-row">
             <label>Report Filter <br><small style="color: #64748b; font-size: 0.75rem;">(Generate report for all, or limit to specific flows)</small></label>
             <select name="flow_filter" class="fancy-select">
-                <option value="All" {% if file.config.get('flow_filter') == 'All' %}selected{% endif %}>All Transactions</option>
-                <option value="Inflows Only" {% if file.config.get('flow_filter') == 'Inflows Only' %}selected{% endif %}>Inflows Only</option>
-                <option value="Outflows Only" {% if file.config.get('flow_filter') == 'Outflows Only' %}selected{% endif %}>Outflows Only</option>
+                    <option value="All" {% if file.config.get('flow_filter') == 'All' %}selected{% endif %}>All Transactions</option>
+                    <option value="Inflows Only" {% if file.config.get('flow_filter') == 'Inflows Only' %}selected{% endif %}>Inflows Only</option>
+                    <option value="Outflows Only" {% if file.config.get('flow_filter') == 'Outflows Only' %}selected{% endif %}>Outflows Only</option>
+                    <option value="Credits Only" {% if file.config.get('flow_filter') == 'Credits Only' %}selected{% endif %}>Credits Only</option>
+                    <option value="Debits Only" {% if file.config.get('flow_filter') == 'Debits Only' %}selected{% endif %}>Debits Only</option>
             </select>
         </div>
         
