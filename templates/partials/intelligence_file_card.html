@@ -22,9 +22,9 @@
             <a href="/api/download/{{ file.unique_filename }}" class="btn btn-accent" download style="text-decoration: none; font-weight: bold; background: var(--accent); border-color: var(--accent);">
                 📥 Download Unique Only
             </a>
-            {% elif 'Needs Sheet' in file.status %}
+            {% elif 'Needs' in file.status or 'Uploaded' in file.status %}
             <button class="btn btn-accent" hx-post="/api/intel/config-form/{{ file.id }}" hx-target="#intel-mapping-area-{{ file.id }}">
-                🛠️ Select Sheet
+                🛠️ Configure Sync
             </button>
             {% endif %}
 
