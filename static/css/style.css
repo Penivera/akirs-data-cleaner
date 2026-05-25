@@ -488,6 +488,11 @@ body {
     border-color: var(--primary);
 }
 
+.fancy-select.is-mapped {
+    border-color: var(--success);
+    background: var(--success-light);
+}
+
 /* Custom Preset configuration inputs */
 .custom-config-area {
     background: #f8fafc;

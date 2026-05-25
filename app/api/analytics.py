@@ -125,21 +125,37 @@ async def analyse_config(request: Request, file_id: str):
             "outflow_indicator", "OUTFLOW"
         )
         state.config["flow_filter"] = form_data.get("flow_filter", "All")
-        # Handle limit: can be empty/0 to show all records
+        # Handle limit: empty or 0 shows all records.
         limit_val = form_data.get("limit", "50").strip()
-        state.config["limit"] = int(limit_val) if limit_val else None
+        state.config["limit"] = int(limit_val) if limit_val and limit_val != "0" else None
         # Handle min_amount_filter: optional
-        min_amount_val = form_data.get("min_amount_filter", "").strip()
-        state.config["min_amount_filter"] = float(min_amount_val) if min_amount_val else None
+        min_amount_val = form_data.get("min_amount_filter", "").replace(",", "").strip()
+        state.config["min_amount_filter"] = (
+            float(min_amount_val) if min_amount_val and min_amount_val != "." else None
+        )
         state.config["title"] = form_data.get("title", "DATA ANALYSIS REPORT")
         state.config["keep_columns"] = form_data.getlist("keep_columns")
         
-        # New: concatenation fields with ordering
-        state.config["concat_order"] = {}
-        for header in state.headers:
-            order_val = form_data.get(f"concat_order_{header}", "").strip()
-            if order_val:
-                state.config["concat_order"][header] = order_val
+        # Save full-name/account-name concatenation in the user's selection order.
+        concat_columns = [col for col in form_data.getlist("concat_columns") if col]
+        state.config["concat_columns"] = concat_columns
+        state.config["concat_order"] = {
+            col: str(idx + 1) for idx, col in enumerate(concat_columns)
+        }
+
+        # Keep supporting the old typed-order controls if an older form posts them.
+        if not state.config["concat_order"]:
+            for header in state.headers:
+                order_val = form_data.get(f"concat_order_{header}", "").strip()
+                if order_val:
+                    state.config["concat_order"][header] = order_val
+            state.config["concat_columns"] = [
+                col
+                for col, _ in sorted(
+                    state.config["concat_order"].items(),
+                    key=lambda item: int(item[1]) if str(item[1]).isdigit() else 999,
+                )
+            ]
         
         state.config["concat_separator"] = form_data.get("concat_separator", " ")
         # New: cumulative-by-nuban option and nuban column
@@ -182,6 +198,15 @@ async def get_config_form(request: Request, file_id: str):
             preview_rows = rows[state.header_row_idx + 1 : state.header_row_idx + 4]
         except Exception:
             pass
+
+    if state.config.get("concat_order") and not state.config.get("concat_columns"):
+        state.config["concat_columns"] = [
+            col
+            for col, _ in sorted(
+                state.config["concat_order"].items(),
+                key=lambda item: int(item[1]) if str(item[1]).isdigit() else 999,
+            )
+        ]
 
     return templates.TemplateResponse(
         request=request,
@@ -230,5 +255,18 @@ async def download_analysis(filename: str):
             filename=filename,
             media_type="text/markdown",
             content_disposition_type="attachment",
+        )
+    return HTMLResponse(f"File not found on disk at {file_path}", status_code=404)
+
+
+@router.get("/api/analyse/view-report/{filename}")
+async def view_analysis_report(filename: str):
+    file_path = os.path.join("reports", filename)
+    if os.path.exists(file_path):
+        return FileResponse(
+            path=file_path,
+            filename=filename,
+            media_type="text/markdown",
+            content_disposition_type="inline",
         )
     return HTMLResponse(f"File not found on disk at {file_path}", status_code=404)

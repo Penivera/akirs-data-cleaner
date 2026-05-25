@@ -44,24 +44,118 @@
         {% endif %}
 
         <div class="mapping-row">
-            <label>Report Title <br><small style="color: #64748b; font-size: 0.75rem;">(The header text printed at the top of your final document)</small></label>
-            <input type="text" name="title" class="fancy-select" value="{{ file.config.get('title', 'DATA ANALYSIS REPORT') }}" required>
+            <label>TITLE <br><small style="color: #64748b; font-size: 0.75rem;">Report heading</small></label>
+            <input type="text" name="title" class="fancy-select mapping-highlight-field {% if file.config.get('title', 'DATA ANALYSIS REPORT') %}is-mapped{% endif %}" value="{{ file.config.get('title', 'DATA ANALYSIS REPORT') }}" required>
         </div>
         
         <div class="mapping-row">
-            <label>Who are we ranking? <br><small style="color: #64748b; font-size: 0.75rem;">(e.g., Account Name, Branch, or Taxpayer ID)</small></label>
-            <select name="identity_col" class="fancy-select">
-                <option value="">-- Select Identity Column --</option>
-                {% for h in file.headers %}
-                <option value="{{ h }}" {% if file.config.get('identity_col') == h %}selected{% endif %}>{{ h }}</option>
-                {% endfor %}
-            </select>
+            <label>ACCOUNT NAME <br><small style="color: #64748b; font-size: 0.75rem;">Who to rank</small></label>
+            {% set selected_name_cols = file.config.get('concat_columns', []) or ([file.config.get('identity_col')] if file.config.get('identity_col') else []) %}
+            <details id="analysis-account-name-picker-{{ file.id }}" data-max-selected="3" style="position: relative;">
+                <summary class="fancy-select {% if selected_name_cols %}is-mapped{% endif %}" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; list-style: none;">
+                    <span class="analysis-account-name-label" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        {% if selected_name_cols %}{{ selected_name_cols|join(' + ') }}{% else %}-- Select Account Name --{% endif %}
+                    </span>
+                    <span style="margin-left: auto; font-weight: 900;">⌄</span>
+                </summary>
+
+                <div class="analysis-account-name-values" style="display: none;">
+                    <input type="hidden" name="identity_col" value="{{ selected_name_cols[0] if selected_name_cols else '' }}">
+                    {% for selected_header in selected_name_cols %}
+                    <input type="hidden" name="concat_columns" value="{{ selected_header }}">
+                    {% endfor %}
+                </div>
+
+                <div style="position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 50; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; background: white; max-height: 260px; overflow-y: auto; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);">
+                    {% for h in file.headers %}
+                    <label style="display: flex; align-items: center; gap: 8px; padding: 7px 6px; font-size: 13px; color: #1e293b; border-bottom: 1px solid #f1f5f9;">
+                        <input type="checkbox" value="{{ h }}" {% if h in selected_name_cols %}checked{% endif %} class="analysis-account-name-cb" style="accent-color: var(--primary);">
+                        <span class="analysis-account-name-order" style="display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 999px; border: 1px solid #cbd5e1; color: var(--text-color); font-size: 10px; font-weight: bold; background: #fafafa;"></span>
+                        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ h }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </details>
+
+            <script>
+                (() => {
+                    const picker = document.getElementById("analysis-account-name-picker-{{ file.id }}");
+                    if (!picker || picker.dataset.bound === "true") return;
+
+                    const maxSelected = Number(picker.dataset.maxSelected || 8);
+                    const valueHolder = picker.querySelector(".analysis-account-name-values");
+                    const label = picker.querySelector(".analysis-account-name-label");
+                    const summary = picker.querySelector("summary");
+                    const checkboxes = Array.from(picker.querySelectorAll(".analysis-account-name-cb"));
+                    let selected = checkboxes.filter(cb => cb.checked).map(cb => cb.value);
+
+                    function render() {
+                        valueHolder.innerHTML = "";
+
+                        const identityInput = document.createElement("input");
+                        identityInput.type = "hidden";
+                        identityInput.name = "identity_col";
+                        identityInput.value = selected[0] || "";
+                        valueHolder.appendChild(identityInput);
+
+                        selected.forEach(value => {
+                            const input = document.createElement("input");
+                            input.type = "hidden";
+                            input.name = "concat_columns";
+                            input.value = value;
+                            valueHolder.appendChild(input);
+                        });
+
+                        checkboxes.forEach(cb => {
+                            cb.checked = selected.includes(cb.value);
+                            const badge = cb.closest("label").querySelector(".analysis-account-name-order");
+                            const order = selected.indexOf(cb.value);
+                            badge.textContent = order >= 0 ? String(order + 1) : "";
+                            badge.style.background = order >= 0 ? "var(--primary-light)" : "#fafafa";
+                            badge.style.borderColor = order >= 0 ? "var(--primary)" : "#cbd5e1";
+                            badge.style.color = order >= 0 ? "var(--primary)" : "var(--text-color)";
+                        });
+
+                        if (selected.length) {
+                            label.textContent = selected.join(" + ");
+                            summary.classList.add("is-mapped");
+                        } else {
+                            label.textContent = "-- Select Account Name --";
+                            summary.classList.remove("is-mapped");
+                        }
+                    }
+
+                    checkboxes.forEach(cb => {
+                        cb.addEventListener("change", () => {
+                            if (cb.checked) {
+                                if (!selected.includes(cb.value) && selected.length < maxSelected) {
+                                    selected.push(cb.value);
+                                } else if (selected.length >= maxSelected) {
+                                    cb.checked = false;
+                                }
+                            } else {
+                                selected = selected.filter(value => value !== cb.value);
+                            }
+                            render();
+                        });
+                    });
+
+                    document.addEventListener("click", event => {
+                        if (!picker.contains(event.target)) {
+                            picker.open = false;
+                        }
+                    });
+
+                    picker.dataset.bound = "true";
+                    render();
+                })();
+            </script>
         </div>
 
         <div class="mapping-row">
-            <label>What are we measuring? <br><small style="color: #64748b; font-size: 0.75rem;">(e.g., Amount, Balance, Debit size)</small></label>
-            <select name="metric_col" class="fancy-select" required>
-                <option value="">-- Select Numeric Column to Sum --</option>
+            <label>AMOUNT <br><small style="color: #64748b; font-size: 0.75rem;">Amount column</small></label>
+            <select name="metric_col" class="fancy-select mapping-highlight-field {% if file.config.get('metric_col') %}is-mapped{% endif %}" required>
+                <option value="">-- Select Amount --</option>
                 {% for h in file.headers %}
                 <option value="{{ h }}" {% if file.config.get('metric_col') == h %}selected{% endif %}>{{ h }}</option>
                 {% endfor %}
@@ -69,9 +163,9 @@
         </div>
         
         <div class="mapping-row">
-            <label>Currency Column <br><small style="color: #64748b; font-size: 0.75rem;">(Optional: separate USD metrics from NGN metrics)</small></label>
-            <select name="currency_col" class="fancy-select">
-                <option value="">-- None (Mix all currencies blindly) --</option>
+            <label>CURRENCY <br><small style="color: #64748b; font-size: 0.75rem;">Optional</small></label>
+            <select name="currency_col" class="fancy-select mapping-highlight-field {% if file.config.get('currency_col') %}is-mapped{% endif %}">
+                <option value="">-- None --</option>
                 {% for h in file.headers %}
                 <option value="{{ h }}" {% if file.config.get('currency_col') == h %}selected{% endif %}>{{ h }}</option>
                 {% endfor %}
@@ -79,9 +173,9 @@
         </div>
 
         <div class="mapping-row">
-            <label>Transaction Type Column <br><small style="color: #64748b; font-size: 0.75rem;">(Optional: column indicating Inflow vs Outflow)</small></label>
-            <select name="flow_type_col" class="fancy-select">
-                <option value="">-- None (Assume positive is inflow, negative is outflow) --</option>
+            <label>FLOW TYPE <br><small style="color: #64748b; font-size: 0.75rem;">Inflow/outflow column</small></label>
+            <select name="flow_type_col" class="fancy-select mapping-highlight-field {% if file.config.get('flow_type_col') %}is-mapped{% endif %}">
+                <option value="">-- None --</option>
                 {% for h in file.headers %}
                 <option value="{{ h }}" {% if file.config.get('flow_type_col') == h %}selected{% endif %}>{{ h }}</option>
                 {% endfor %}
@@ -90,18 +184,18 @@
         
         <div class="mapping-row" style="display: flex; gap: 10px;">
             <div style="flex: 1;">
-                <label>Inflow Indicator</label>
-                <input type="text" name="inflow_indicator" class="fancy-select" value="{{ file.config.get('inflow_indicator', 'INFLOW') }}" placeholder="e.g. CR">
+                <label>INFLOW</label>
+                <input type="text" name="inflow_indicator" class="fancy-select mapping-highlight-field {% if file.config.get('inflow_indicator', 'INFLOW') %}is-mapped{% endif %}" value="{{ file.config.get('inflow_indicator', 'INFLOW') }}" placeholder="e.g. CR">
             </div>
             <div style="flex: 1;">
-                <label>Outflow Indicator</label>
-                <input type="text" name="outflow_indicator" class="fancy-select" value="{{ file.config.get('outflow_indicator', 'OUTFLOW') }}" placeholder="e.g. DR">
+                <label>OUTFLOW</label>
+                <input type="text" name="outflow_indicator" class="fancy-select mapping-highlight-field {% if file.config.get('outflow_indicator', 'OUTFLOW') %}is-mapped{% endif %}" value="{{ file.config.get('outflow_indicator', 'OUTFLOW') }}" placeholder="e.g. DR">
             </div>
         </div>
 
         <div class="mapping-row">
-            <label>Report Filter <br><small style="color: #64748b; font-size: 0.75rem;">(Generate report for all, or limit to specific flows)</small></label>
-            <select name="flow_filter" class="fancy-select">
+            <label>FILTER <br><small style="color: #64748b; font-size: 0.75rem;">Flow scope</small></label>
+            <select name="flow_filter" class="fancy-select mapping-highlight-field {% if file.config.get('flow_filter', 'All') %}is-mapped{% endif %}">
                 <option value="All" {% if file.config.get('flow_filter') == 'All' %}selected{% endif %}>All Transactions</option>
                 <option value="Inflows Only" {% if file.config.get('flow_filter') == 'Inflows Only' %}selected{% endif %}>Inflows Only</option>
                 <option value="Outflows Only" {% if file.config.get('flow_filter') == 'Outflows Only' %}selected{% endif %}>Outflows Only</option>
@@ -109,65 +203,31 @@
         </div>
         
         <div class="mapping-row" style="grid-column: 1 / -1; max-width: 300px;">
-            <label>Sort Limit (Top X Records) <br><small style="color: #64748b; font-size: 0.75rem;">(e.g., 50 means Top 50 Spenders. use 0 to show ALL records)</small></label>
-            <input type="number" name="limit" class="fancy-select" value="{{ file.config.get('limit', 50) }}">
+            <label>LIMIT <br><small style="color: #64748b; font-size: 0.75rem;">Blank means all</small></label>
+            <input type="number" name="limit" class="fancy-select" value="{{ '' if file.config.get('limit') is none or file.config.get('limit') == 0 else file.config.get('limit', 50) }}" placeholder="All records">
         </div>
 
         <div class="mapping-row" style="grid-column: 1 / -1; max-width: 300px;">
-            <label>Minimum Amount Filter (Optional) <br><small style="color: #64748b; font-size: 0.75rem;">(e.g., 25000000 to show only amounts > 25 million NGN)</small></label>
-            <input type="number" name="min_amount_filter" class="fancy-select" value="{{ file.config.get('min_amount_filter', '') }}" placeholder="Leave blank for no filter" step="0.01">
+            <label>MINIMUM <br><small style="color: #64748b; font-size: 0.75rem;">Amount floor</small></label>
+            <input type="text" name="min_amount_filter" class="fancy-select min-amount-filter" value="{{ file.config.get('min_amount_filter', '') }}" placeholder="Leave blank for no filter" inputmode="decimal" autocomplete="off">
+            <small style="color: #64748b; font-size: 0.75rem;">Only show records at or above this amount.</small>
+            <small class="amount-scale-hint" style="color: #64748b; font-size: 0.75rem; min-height: 1rem; display: block;"></small>
         </div>
 
-        <!-- Identity Concatenation Configuration -->
-        <div class="mapping-row" style="grid-column: 1 / -1;">
-            <label style="color: #cbd5e1; font-size: 0.95rem; margin-bottom: 12px; display: block; font-weight: 600;">IDENTITY CONCATENATION (Advanced)</label>
-            <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 10px; border: 1px solid var(--glass-border);">
-                <p style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 15px;">Optionally combine multiple columns to create a unique identity (e.g. Account Name + Branch):</p>
-                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px;">
-                    {% for h in file.headers %}
-                    <div style="display: flex; align-items: center; gap: 12px; background: rgba(255,255,255,0.03); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(148,163,184,0.15);">
-                        <input type="text" 
-                            name="concat_order_{{ h }}" 
-                            placeholder="Order" 
-                            maxlength="2"
-                            value="{{ file.config.concat_order.get(h, '') if file.config.concat_order else '' }}"
-                            style="width: 55px; padding: 6px; background: rgba(0,0,0,0.4); border: 1px solid var(--primary); border-radius: 6px; color: #fff; text-align: center; font-weight: 700; font-size: 0.9rem;" />
-                        <span style="flex: 1; color: #f8fafc; font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ h }}</span>
-                    </div>
-                    {% endfor %}
-                </div>
-                <div style="margin-top: 12px; display: flex; align-items: center; gap: 6px;">
-                     <span style="color: var(--primary); font-size: 1rem;">ℹ️</span>
-                     <small style="color: #64748b; font-size: 0.75rem;">
-                        Assign numbers (1, 2, 3) to columns. If used, this overrides the single 'Who are we ranking?' selection above.
-                    </small>
-                </div>
-                
-                <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid rgba(148,163,184,0.2);">
-                    <label style="color: #cbd5e1; font-size: 0.9rem; margin-bottom: 8px; display: block; font-weight: 600;">Separator:</label>
-                    <input type="text" 
-                        name="concat_separator" 
-                        placeholder="Space, comma, dash, etc." 
-                        value="{{ file.config.get('concat_separator', ' ') }}"
-                        style="width: 100%; padding: 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--glass-border); border-radius: 8px; color: #f8fafc; font-size: 0.95rem; box-sizing: border-box; outline: none;" />
-                </div>
-            </div>
-        </div>
-        
         <!-- NUBAN Cumulation Settings -->
         <div class="mapping-row" style="grid-column: 1 / -1; margin-top: 10px; border-top: 1px solid var(--glass-border); padding-top: 20px;">
             <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; color: #f8fafc; font-weight: 600;">
                 <input type="checkbox" name="cumulate_by_nuban" {% if file.config.get('cumulate_by_nuban') %}checked{% endif %} style="width: 18px; height: 18px; accent-color: var(--primary);">
-                Enable Cumulative Analysis by NUBAN
+                NUBAN Cumulative
             </label>
             <p style="color: #94a3b8; font-size: 0.85rem; margin-left: 28px; margin-bottom: 10px;">
-                If enabled, we will group transactions by NUBAN instead of just the identity column. Useful for cleaning bank statements with inconsistent names.
+                Group by NUBAN.
             </p>
             
             <div style="margin-left: 28px; max-width: 400px;">
-                <label style="font-size: 0.8rem; color: #cbd5e1;">NUBAN Column (for cumulation)</label>
-                <select name="nuban_col" class="fancy-select" style="width: 100%; margin-top: 5px;">
-                    <option value="">-- Select NUBAN Column --</option>
+                <label style="font-size: 0.8rem; color: #cbd5e1;">NUBAN</label>
+                <select name="nuban_col" class="fancy-select mapping-highlight-field {% if file.config.get('nuban_col') %}is-mapped{% endif %}" style="width: 100%; margin-top: 5px;">
+                    <option value="">-- Select NUBAN --</option>
                     {% for h in file.headers %}
                     <option value="{{ h }}" {% if file.config.get('nuban_col') == h %}selected{% endif %}>{{ h }}</option>
                     {% endfor %}
@@ -176,7 +236,7 @@
         </div>
         
         <div class="mapping-row" style="grid-column: 1 / -1;">
-            <label>Additional Metadata Columns to Keep (uncheck to drop)</label>
+            <label>METADATA <br><small style="color: #64748b; font-size: 0.75rem;">Keep columns</small></label>
             <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 10px;">
                 {% for h in file.headers %}
                 <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; font-size: 13px; color: #0a0e11;">

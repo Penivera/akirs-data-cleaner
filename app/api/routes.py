@@ -411,21 +411,47 @@ async def get_process_view(request: Request):
 
 @router.get("/api/view/cleaned", response_class=HTMLResponse)
 async def get_cleaned_view(request: Request):
-    import math
-
-    cleaned_dir = "cleaned"
-    os.makedirs(cleaned_dir, exist_ok=True)
     files_info = []
 
-    for fname in os.listdir(cleaned_dir):
-        if fname.endswith(".csv") or fname.endswith(".xlsx"):
-            fpath = os.path.join(cleaned_dir, fname)
+    output_dirs = [
+        {
+            "path": "cleaned",
+            "extensions": (".csv", ".xlsx"),
+            "source": "Batch Cleaner",
+            "download_prefix": "/api/download",
+        },
+        {
+            "path": "reports",
+            "extensions": (".md",),
+            "source": "Analysis & Report",
+            "download_prefix": "/api/analyse/download",
+        },
+    ]
+
+    for output_dir in output_dirs:
+        os.makedirs(output_dir["path"], exist_ok=True)
+        for fname in os.listdir(output_dir["path"]):
+            if not fname.endswith(output_dir["extensions"]):
+                continue
+
+            source = output_dir["source"]
+            if output_dir["path"] == "cleaned" and fname.startswith("resolved_"):
+                source = "NUBAN Resolver"
+
+            fpath = os.path.join(output_dir["path"], fname)
             size_bytes = os.path.getsize(fpath)
             size_mb = round(size_bytes / (1024 * 1024), 2) if size_bytes > 0 else 0
-            files_info.append({"name": fname, "size": size_mb})
+            files_info.append(
+                {
+                    "name": fname,
+                    "source": source,
+                    "size": size_mb,
+                    "download_url": f"{output_dir['download_prefix']}/{fname}",
+                    "download_key": f"{output_dir['path']}/{fname}",
+                }
+            )
 
-    # Sort files by name or modified time if needed
-    files_info.sort(key=lambda x: x["name"])
+    files_info.sort(key=lambda x: (x["source"], x["name"]))
 
     return templates.TemplateResponse(
         request=request,
@@ -501,10 +527,14 @@ async def download_batch(request: Request):
 
     zip_buffer = BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        for fname in selected_files:
-            file_path = os.path.join("cleaned", fname)
+        for selected_file in selected_files:
+            folder, fname = os.path.split(selected_file)
+            if folder not in {"cleaned", "reports"} or not fname:
+                continue
+
+            file_path = os.path.join(folder, fname)
             if os.path.exists(file_path):
-                zf.write(file_path, arcname=fname)
+                zf.write(file_path, arcname=os.path.join(folder, fname))
 
     zip_buffer.seek(0)
 
