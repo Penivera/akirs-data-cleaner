@@ -80,10 +80,16 @@ async def analyse_upload(request: Request, file: List[UploadFile] = File(...)):
                 rows, _ = load_tabular_rows(
                     temp_path, state.selected_sheets[0] if state.selected_sheets else ""
                 )
-                idx, headers = find_header_row_and_headers_from_rows(rows)
-                state.headers = [h for h in headers if h]
-                state.header_row_idx = idx
-                state.status = "Ready"
+                if not rows:
+                    state.status = "Error: CSV/Excel file is empty or could not be read."
+                else:
+                    idx, headers = find_header_row_and_headers_from_rows(rows)
+                    if not headers or idx is None:
+                        state.status = "Error: Could not find header row. Ensure file has at least 3 named columns."
+                    else:
+                        state.headers = [h for h in headers if h]
+                        state.header_row_idx = idx
+                        state.status = "Ready"
 
         except Exception as e:
             state.status = f"Error: {str(e)}"
@@ -115,15 +121,25 @@ async def analyse_config(request: Request, file_id: str):
         state.header_row_idx = idx
         state.status = "Ready"
     else:
+        # Validate that we have a usable status before saving config
+        if state.status not in ["Ready", "Configured"]:
+            return templates.TemplateResponse(
+                request=request,
+                name="partials/analyse_file_card.html",
+                context={"request": request, "file": state},
+            )
         # Save actual configuration
         state.config["identity_col"] = form_data.get("identity_col", "")
         state.config["metric_col"] = form_data.get("metric_col", "")
         state.config["currency_col"] = form_data.get("currency_col", "")
         state.config["flow_type_col"] = form_data.get("flow_type_col", "")
-        state.config["inflow_indicator"] = form_data.get("inflow_indicator", "INFLOW")
+        state.config["inflow_indicator"] = form_data.get("inflow_indicator", "CR")
         state.config["outflow_indicator"] = form_data.get(
-            "outflow_indicator", "OUTFLOW"
+            "outflow_indicator", "DR"
         )
+        # Save optional separate credit/debit column selections
+        state.config["credit_col"] = form_data.get("credit_col", "")
+        state.config["debit_col"] = form_data.get("debit_col", "")
         state.config["flow_filter"] = form_data.get("flow_filter", "All")
         # Handle limit: empty or 0 shows all records.
         limit_val = form_data.get("limit", "50").strip()
@@ -164,10 +180,12 @@ async def analyse_config(request: Request, file_id: str):
         )
         state.config["nuban_col"] = form_data.get("nuban_col", "")
 
-        # Consider configured when metric is selected and either identity or concat order are provided
-        if (
-            state.config["identity_col"] or state.config["concat_order"]
-        ) and state.config["metric_col"]:
+        # Consider configured when either metric is selected OR both credit+debit are selected, with identity provided
+        has_metric = state.config["metric_col"]
+        has_credit_debit = state.config["credit_col"] and state.config["debit_col"]
+        has_identity = state.config["identity_col"] or state.config["concat_order"]
+        
+        if has_identity and (has_metric or has_credit_debit):
             state.status = "Configured"
 
     return templates.TemplateResponse(

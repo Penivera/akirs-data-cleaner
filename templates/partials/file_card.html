@@ -58,7 +58,7 @@
                 hx-swap="outerHTML">
                 🚀 Run Ingestion
             </button>
-            {% elif 'Needs Duplicate Review' in file.status %}
+            {% elif 'Needs Duplicate Review' in file.status or 'Needs DB Review' in file.status %}
             <button class="btn btn-outline" hx-post="/api/components/mapping/{{ file.id }}"
                 hx-target="#mapping-area-{{ file.id }}">
                 ⚙️ Options
@@ -84,6 +84,9 @@
         {# Dynamic mapping form will be injected here via HTMX #}
         {% if file.duplicate_groups and 'Needs Duplicate Review' in file.status %}
         {% include 'partials/duplicate_review.html' %}
+        {% endif %}
+        {% if file.db_matches and 'Needs DB Review' in file.status %}
+        {% include 'partials/db_review.html' %}
         {% endif %}
     </div>
 

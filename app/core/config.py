@@ -15,6 +15,12 @@ class Settings(BaseSettings):
         description="Flutterwave Secret Key for fallback NUBAN resolution"
     )
     
+    intelligence_token: Optional[str] = Field(
+        default=None,
+        validation_alias="INTELLIGENCE_TOKEN",
+        description="Authorization Bearer Token for live DB Verification"
+    )
+    
     app_name: str = Field(
         default="AKIRS Batch File Cleaner",
         description="Name of the application"

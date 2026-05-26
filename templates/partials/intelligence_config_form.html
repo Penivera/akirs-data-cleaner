@@ -1,0 +1,50 @@
+<form class="mapping-form" hx-post="/api/intel/save-config/{{ file.id }}" hx-target="#intel-file-{{ file.id }}" hx-swap="outerHTML"
+    style="background: white; border: 1px solid #e2e8f0; border-radius: 0.75rem; padding: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); margin-top: 1.5rem;">
+    <h3 style="font-family: var(--font-heading); font-size: 1.25rem; font-weight: 700; color: var(--accent); margin-bottom: 1rem; border-bottom: 2px solid var(--accent-light); padding-bottom: 0.5rem;">
+        Configure Target Worksheet
+    </h3>
+    
+    <div class="mapping-row">
+        <label>SELECT SHEET TO INGEST</label>
+        <select name="selected_sheets" class="fancy-select" style="margin-top: 5px;" required>
+            {% for sheet in file.sheet_names %}
+            <option value="{{ sheet }}">{{ sheet }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="mapping-row" style="margin-top: 1rem;">
+        <label style="font-size: 11px; font-weight: bold; color: var(--accent); display: block; margin-bottom: 4px;">SEARCH QUERY MAPPED FIELD</label>
+        <select name="verify_db_query_field" class="fancy-select" style="height: 38px; font-size: 13px;">
+            <option value="" {% if not file.verify_db_query_field %}selected{% endif %}>Auto-Detect (Name/Email/Phone)</option>
+            {% for target in targets %}
+            <option value="{{ target }}" {% if file.verify_db_query_field == target %}selected{% endif %}>Query by {{ target }}</option>
+            {% endfor %}
+        </select>
+        <small style="color: #64748b; font-size: 0.75rem; display: block; margin-top: 4px;">Select which field in the file to use as the lookup parameter against the live database.</small>
+    </div>
+
+    <div class="mapping-row" style="margin-top: 1rem;">
+        <label style="font-size: 11px; font-weight: bold; color: var(--accent); display: block; margin-bottom: 4px;">PROD DB TARGET COLUMN</label>
+        <select name="verify_db_target_column" class="fancy-select" style="height: 38px; font-size: 13px;">
+            <option value="ANY" {% if file.verify_db_target_column == 'ANY' %}selected{% endif %}>Any Column (Name, Email, or Phone)</option>
+            <option value="NAME" {% if file.verify_db_target_column == 'NAME' %}selected{% endif %}>Taxpayer Name</option>
+            <option value="EMAIL" {% if file.verify_db_target_column == 'EMAIL' %}selected{% endif %}>Email Address</option>
+            <option value="PHONE" {% if file.verify_db_target_column == 'PHONE' %}selected{% endif %}>Phone Number</option>
+        </select>
+        <small style="color: #64748b; font-size: 0.75rem; display: block; margin-top: 4px;">Select which field in the live database to evaluate the query against.</small>
+    </div>
+
+    <div class="mapping-row" style="margin-top: 1rem;">
+        <label style="display: flex; align-items: center; gap: 10px; background: #f8fafc; border: 1px solid #e2e8f0; padding: 10px 12px; border-radius: 6px; cursor: pointer;">
+            <input type="checkbox" name="verify_db_fuzzy" value="true" {% if file.verify_db_fuzzy %}checked{% endif %} style="width: 16px; height: 16px; accent-color: var(--primary);">
+            <span style="font-size: 13px; color: #334155; font-weight: 600;">Enable Fuzzy Jaccard Suggestions</span>
+        </label>
+        <small style="color: #64748b; font-size: 0.75rem; display: block; margin-top: 4px;">Suggest duplicates if token-based word similarity is high.</small>
+    </div>
+
+    <div class="form-actions" style="margin-top: 1.5rem; display: flex; justify-content: flex-end; gap: 1rem; border-top: 1px solid #cbd5e1; padding-top: 1.25rem;">
+        <button type="button" class="btn btn-outline" onclick="this.closest('form').remove()">Cancel</button>
+        <button type="submit" class="btn" style="background: var(--accent); border-color: var(--accent); color: white;">Run Deduplication Audit</button>
+    </div>
+</form>

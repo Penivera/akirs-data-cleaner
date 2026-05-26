@@ -51,16 +51,33 @@ def generate_markdown_report(
     concat_separator = config.get("concat_separator", " ")
 
     flow_type_col = config.get("flow_type_col")
-    inflow_indicator = str(config.get("inflow_indicator", "INFLOW")).strip().upper()
-    outflow_indicator = str(config.get("outflow_indicator", "OUTFLOW")).strip().upper()
+    # Support separate credit/debit columns as an alternative to a single flow type column
+    credit_col = config.get("credit_col")
+    debit_col = config.get("debit_col")
+    # By default, expect transaction types to be credit/debit rather than inflow/outflow.
+    # Keep existing config keys for backward compatibility but accept common synonyms.
+    inflow_indicator = str(config.get("inflow_indicator", "CREDIT")).strip().upper()
+    outflow_indicator = str(config.get("outflow_indicator", "DEBIT")).strip().upper()
     flow_filter = config.get("flow_filter", "All")
     min_amount_filter = config.get("min_amount_filter", None)  # Optional: filter amounts above threshold
     if min_amount_filter is not None:
         min_amount_filter = parse_float(min_amount_filter)
 
-    if (not identity_col or not metric_col) and not concat_order:
+    # Allow metric_col to be optional if credit/debit columns are provided
+    has_credit_debit = credit_col and debit_col
+    if (not identity_col and not concat_order):
         raise ValueError(
-            "Identity (or concat columns) and Metric columns must be selected."
+            "Identity column (or concat columns) must be selected."
+        )
+    if not metric_col and not has_credit_debit:
+        raise ValueError(
+            "Either a Metric column or both Credit+Debit columns must be selected."
+        )
+
+    # Validate header_row_idx
+    if header_row_idx is None or header_row_idx < 0 or header_row_idx >= len(rows):
+        raise ValueError(
+            f"Header row index {header_row_idx} is out of range for provided rows (len={len(rows)})"
         )
 
     # Get headers and row data
@@ -71,8 +88,15 @@ def generate_markdown_report(
     met_idx = header_map.get(metric_col) if metric_col else None
     curr_idx = header_map.get(currency_col) if currency_col else None
     flow_idx = header_map.get(flow_type_col) if flow_type_col else None
+    credit_idx = header_map.get(credit_col) if credit_col else None
+    debit_idx = header_map.get(debit_col) if debit_col else None
 
-    if (id_idx is None and not concat_order) or met_idx is None:
+    # Validate required columns: identity (or concat), and either metric OR both credit+debit
+    has_identity = id_idx is not None or concat_order
+    has_metric = met_idx is not None
+    has_credit_debit = credit_idx is not None and debit_idx is not None
+    
+    if not has_identity or (not has_metric and not has_credit_debit):
         raise ValueError("Selected columns not found in dataset")
 
     keep_indices = []
@@ -135,37 +159,89 @@ def generate_markdown_report(
         if not id_val or str(id_val).upper() in ["N/A", "NULL", "NONE"]:
             continue
 
-        metric_val_str = row[met_idx] if met_idx < len(row) else 0.0
-        m_val = parse_float(metric_val_str)
+        # Determine metric value: prefer credit/debit if available, otherwise use metric_col
+        m_val = 0.0
+        if credit_idx is not None or debit_idx is not None:
+            # Use credit/debit columns as the metric source
+            credit_amount = parse_float(row[credit_idx]) if credit_idx is not None and credit_idx < len(row) else 0.0
+            debit_amount = parse_float(row[debit_idx]) if debit_idx is not None and debit_idx < len(row) else 0.0
+            # Net: credit is positive, debit is negative
+            m_val = credit_amount - debit_amount
+        else:
+            # Fall back to metric column
+            metric_val_str = row[met_idx] if met_idx is not None and met_idx < len(row) else 0.0
+            m_val = parse_float(metric_val_str)
+
+        abs_m_val = abs(m_val)
 
         c_val = ""
         if curr_idx is not None and curr_idx < len(row):
             c_val = str(row[curr_idx]).strip() if row[curr_idx] is not None else ""
 
-        # Determine flow type
+        # Determine flow type and amounts. Priority:
+        # 1) Separate credit/debit columns (if configured) - credits are inflows, debits are outflows
+        # 2) Single flow type column (if configured)
+        # 3) Sign of metric value
         is_inflow = False
         is_outflow = False
-        if flow_idx is not None and flow_idx < len(row):
+        inflow_amount = 0.0  # For credit/debit split accounting
+        outflow_amount = 0.0  # For credit/debit split accounting
+
+        # Check separate credit/debit columns first
+        if credit_idx is not None or debit_idx is not None:
+            credit_amount = parse_float(row[credit_idx]) if credit_idx is not None and credit_idx < len(row) else 0.0
+            debit_amount = parse_float(row[debit_idx]) if debit_idx is not None and debit_idx < len(row) else 0.0
+
+            # When using credit/debit columns, BOTH can be present in same row
+            if credit_amount > 0:
+                is_inflow = True
+                inflow_amount = credit_amount
+            if debit_amount > 0:  # Note: 'if' not 'elif' to allow both
+                is_outflow = True
+                outflow_amount = debit_amount
+                
+            # If neither present, fall back to sign of metric
+            if not is_inflow and not is_outflow:
+                if m_val >= 0:
+                    is_inflow = True
+                    inflow_amount = m_val
+                else:
+                    is_outflow = True
+                    outflow_amount = abs(m_val)
+
+        # If separate creditdebit columns not present or have no values, check single flow type column
+        elif flow_idx is not None and flow_idx < len(row):
             f_val = (
                 str(row[flow_idx]).strip().upper() if row[flow_idx] is not None else ""
             )
-            if f_val == inflow_indicator:
+            if f_val == inflow_indicator or f_val in ("CREDIT", "CR"):
                 is_inflow = True
-            elif f_val == outflow_indicator:
+                inflow_amount = abs_m_val
+            elif f_val == outflow_indicator or f_val in ("DEBIT", "DR"):
                 is_outflow = True
+                outflow_amount = abs_m_val
+            else:
+                if m_val >= 0:
+                    is_inflow = True
+                    inflow_amount = abs_m_val
+                else:
+                    is_outflow = True
+                    outflow_amount = abs_m_val
+
         else:
+            # Final fallback: use sign of metric
             if m_val >= 0:
                 is_inflow = True
+                inflow_amount = abs_m_val
             else:
                 is_outflow = True
+                outflow_amount = abs_m_val
 
-        # Filter based on flow
-        if flow_filter == "Inflows Only" and not is_inflow:
+        # Filter based on flow. Accept either Inflows/Outflows or Credits/Debits labels.
+        if flow_filter in ("Inflows Only", "Credits Only") and not is_inflow:
             continue
-        if flow_filter == "Outflows Only" and not is_outflow:
+        if flow_filter in ("Outflows Only", "Debits Only") and not is_outflow:
             continue
-
-        abs_m_val = abs(m_val)
 
         group_key = (id_val, c_val)
 
@@ -176,12 +252,13 @@ def generate_markdown_report(
         ) + (m_val * get_fx_rate(c_val))
         target_group["count"] += 1
 
+        # Add inflows and outflows separately (both can be present when using credit/debit columns)
         if is_inflow:
-            target_group["inflow_sum"] += abs_m_val
-            total_inflows[c_val] += abs_m_val
-        elif is_outflow:
-            target_group["outflow_sum"] += abs_m_val
-            total_outflows[c_val] += abs_m_val
+            target_group["inflow_sum"] += inflow_amount
+            total_inflows[c_val] += inflow_amount
+        if is_outflow:  # Note: 'if' not 'elif' to support credit/debit split rows
+            target_group["outflow_sum"] += outflow_amount
+            total_outflows[c_val] += outflow_amount
 
         # Populate metadata on first hit
         if not target_group["metadata"]:
@@ -205,11 +282,11 @@ def generate_markdown_report(
         reverse=True,
     )
     
-    # Apply minimum amount filter if specified
+    # Apply minimum amount filter if specified (use scaled_metric_sum if available, else metric_sum)
     if min_amount_filter is not None and min_amount_filter > 0:
         sorted_groups = [
             (k, v) for k, v in sorted_groups 
-            if abs(v.get("scaled_metric_sum", v["metric_sum"])) >= min_amount_filter
+            if v.get("scaled_metric_sum") and abs(v.get("scaled_metric_sum", v["metric_sum"])) >= min_amount_filter
         ]
     
     # Apply limit (None means show all records)
@@ -240,7 +317,11 @@ def generate_markdown_report(
             f"   - Total Outflows: {format_currency(total_outflows[c_val], c_val)}"
         )
 
-    lines.append(f"Metric Analyzed: {metric_col}")
+    # Show metric label - use credit/debit if available, else metric_col
+    metric_label = metric_col
+    if credit_col and debit_col:
+        metric_label = f"{credit_col}/{debit_col}"
+    lines.append(f"Metric Analyzed: {metric_label}")
     if currency_col:
         lines.append(f"Currency Grouping: {currency_col}")
     if min_amount_filter and min_amount_filter > 0:
@@ -248,9 +329,9 @@ def generate_markdown_report(
     lines.append("")
     # Format header based on whether limit is set
     if limit is None or limit == 0:
-        lines.append(f"ALL RECORDS BY {metric_col}:")
+        lines.append(f"ALL RECORDS BY {metric_label}:")
     else:
-        lines.append(f"TOP {limit} BY {metric_col}:")
+        lines.append(f"TOP {limit} BY {metric_label}:")
     lines.append("")
 
     most_active_k = ""
@@ -293,18 +374,18 @@ def generate_markdown_report(
         # Format summary based on whether limit is set
         if limit is None or limit == 0:
             lines.append(
-                f"- Total '{metric_col}' (All Records): {format_currency(c_top_sum, c_val)}"
+                f"- Total '{metric_label}' (All Records): {format_currency(c_top_sum, c_val)}"
             )
         else:
             lines.append(
-                f"- Total '{metric_col}' of Top {limit}: {format_currency(c_top_sum, c_val)}"
+                f"- Total '{metric_label}' of Top {limit}: {format_currency(c_top_sum, c_val)}"
             )
         if c_top:
             lines.append(
-                f"- Highest Single '{metric_col}': {c_top[0][0][0]} ({format_currency(c_top[0][1]['metric_sum'], c_val)})"
+                f"- Highest Single '{metric_label}': {c_top[0][0][0]} ({format_currency(c_top[0][1]['metric_sum'], c_val)})"
             )
             lines.append(
-                f"- Average '{metric_col}' per Top Account: {format_currency(c_top_sum / len(c_top), c_val)}"
+                f"- Average '{metric_label}' per Top Account: {format_currency(c_top_sum / len(c_top), c_val)}"
             )
         lines.append("")
 
@@ -375,6 +456,12 @@ def generate_cumulative_report(
     if not nuban_col or not metric_col:
         raise ValueError(
             "NUBAN (or identity) and Metric columns must be selected for cumulative report."
+        )
+
+    # Validate header_row_idx
+    if header_row_idx is None or header_row_idx < 0 or header_row_idx >= len(rows):
+        raise ValueError(
+            f"Header row index {header_row_idx} is out of range for provided rows (len={len(rows)})"
         )
 
     headers = [str(h).strip() if h else "" for h in rows[header_row_idx]]

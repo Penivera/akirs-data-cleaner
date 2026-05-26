@@ -7,7 +7,7 @@ import time
 from io import BytesIO
 from typing import Dict, Any, List
 
-from app.core.state import file_db, FileState, TARGET_FIELDS, PRESETS
+from app.core.state import file_db, FileState, TARGET_FIELDS, PRESETS, save_all_states
 from app.services.cleaner import (
     auto_map_headers,
     extract_records,
@@ -19,6 +19,7 @@ from app.services.cleaner import (
     detect_distinct_branches,
     pre_flight_validate,
 )
+from app.services.intelligence import check_file_records_against_db
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -119,6 +120,7 @@ async def upload_file(request: Request, file: List[UploadFile] = File(...)):
             state.status = f"Error: {str(e)}"
 
         file_db[state.id] = state
+        save_all_states()
         processed_states.append(state)
 
     # Determine display targets for cards
@@ -231,6 +233,10 @@ async def save_mapping(request: Request, file_id: str):
         state.duplicate_logic = form_data.get("duplicate_logic", "primary_key")
         state.primary_key_field = form_data.get("primary_key_field") or ""
         state.output_pattern = form_data.get("output_pattern") or "{filename}"
+        state.verify_db = form_data.get("verify_db") == "true"
+        state.verify_db_query_field = form_data.get("verify_db_query_field") or ""
+        state.verify_db_target_column = form_data.get("verify_db_target_column") or "ANY"
+        state.verify_db_fuzzy = form_data.get("verify_db_fuzzy") == "true"
 
         if state.preset_name == "custom":
             custom_raw = form_data.get("custom_fields", "")
@@ -283,6 +289,7 @@ async def save_mapping(request: Request, file_id: str):
     else:
         fields = PRESETS.get(state.preset_name, PRESETS["retail"])["fields"]
 
+    save_all_states()
     return templates.TemplateResponse(
         request=request,
         name="partials/file_card.html",
@@ -294,6 +301,7 @@ async def save_mapping(request: Request, file_id: str):
 async def delete_file(file_id: str):
     if file_id in file_db:
         del file_db[file_id]
+        save_all_states()
     return Response(status_code=204)
 
 
@@ -331,12 +339,37 @@ async def process_file(request: Request, file_id: str):
             state.duplicate_groups = duplicate_groups
             state.status = f"Needs Duplicate Review ({len(duplicate_groups)} groups)"
         else:
-            out_path = save_cleaned_records(state.saved_path, records, fields, state.output_pattern)
-            state.status = f"Processed ({len(records)} rows)"
-            setattr(state, "cleaned_path", out_path)
+            # Check against live DB
+            has_db_matches = False
+            if getattr(state, "verify_db", False):
+                matches_zipped = await check_file_records_against_db(
+                    records,
+                    fields,
+                    query_field=getattr(state, "verify_db_query_field", ""),
+                    db_target_column=getattr(state, "verify_db_target_column", "ANY"),
+                    fuzzy_match=getattr(state, "verify_db_fuzzy", False)
+                )
+                db_matches = []
+                for uploaded_rec, db_rec in matches_zipped:
+                    if db_rec:
+                        db_matches.append({
+                            "uploaded": uploaded_rec,
+                            "existing": db_rec
+                        })
+                if db_matches:
+                    state.extracted_records = records
+                    state.db_matches = db_matches
+                    state.status = f"Needs DB Review ({len(db_matches)} matches)"
+                    has_db_matches = True
+            
+            if not has_db_matches:
+                out_path = save_cleaned_records(state.saved_path, records, fields, state.output_pattern)
+                state.status = f"Processed ({len(records)} rows)"
+                setattr(state, "cleaned_path", out_path)
     except Exception as e:
         state.status = f"Failed ({str(e)})"
 
+    save_all_states()
     return templates.TemplateResponse(
         request=request,
         name="partials/file_card.html",
@@ -385,14 +418,89 @@ async def resolve_duplicates(request: Request, file_id: str):
             accepted_record_ids,
             fields,
         )
-        out_path = save_cleaned_records(state.saved_path, resolved_records, fields, state.output_pattern)
-        state.status = f"Processed ({len(resolved_records)} rows)"
-        state.cleaned_path = out_path
-        state.duplicate_groups = []
-        state.extracted_records = []
+        
+        # Check resolved records against live DB
+        has_db_matches = False
+        if getattr(state, "verify_db", False):
+            matches_zipped = await check_file_records_against_db(
+                resolved_records,
+                fields,
+                query_field=getattr(state, "verify_db_query_field", ""),
+                db_target_column=getattr(state, "verify_db_target_column", "ANY"),
+                fuzzy_match=getattr(state, "verify_db_fuzzy", False)
+            )
+            db_matches = []
+            for uploaded_rec, db_rec in matches_zipped:
+                if db_rec:
+                    db_matches.append({
+                        "uploaded": uploaded_rec,
+                        "existing": db_rec
+                    })
+            if db_matches:
+                state.extracted_records = resolved_records
+                state.db_matches = db_matches
+                state.status = f"Needs DB Review ({len(db_matches)} matches)"
+                has_db_matches = True
+                
+        if not has_db_matches:
+            out_path = save_cleaned_records(state.saved_path, resolved_records, fields, state.output_pattern)
+            state.status = f"Processed ({len(resolved_records)} rows)"
+            state.cleaned_path = out_path
+            state.duplicate_groups = []
+            state.extracted_records = []
     except Exception as e:
         state.status = f"Failed ({str(e)})"
 
+    save_all_states()
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/file_card.html",
+        context={"request": request, "file": state, "targets": fields},
+    )
+
+
+@router.post("/api/db-resolve/{file_id}", response_class=HTMLResponse)
+async def resolve_db(request: Request, file_id: str):
+    state = file_db.get(file_id)
+    if not state:
+        return "File not found"
+
+    if state.preset_name == "custom":
+        fields = state.custom_fields
+    else:
+        fields = PRESETS.get(state.preset_name, PRESETS["retail"])["fields"]
+
+    form_data = await request.form()
+    
+    # Filter out skipped records
+    final_records = []
+    skipped_count = 0
+    
+    # Store decisions
+    state.db_decisions = {}
+    for match in getattr(state, "db_matches", []):
+        uploaded_id = match["uploaded"]["id"]
+        dec = form_data.get(f"decision_{uploaded_id}", "skip")
+        state.db_decisions[uploaded_id] = dec
+        
+    for rec in getattr(state, "extracted_records", []):
+        rec_id = rec["id"]
+        if rec_id in state.db_decisions:
+            if state.db_decisions[rec_id] == "skip":
+                skipped_count += 1
+                continue
+        final_records.append(rec)
+        
+    try:
+        out_path = save_cleaned_records(state.saved_path, final_records, fields, state.output_pattern)
+        state.status = f"Processed ({len(final_records)} rows, {skipped_count} skipped)"
+        state.cleaned_path = out_path
+        state.db_matches = []
+        state.extracted_records = []
+    except Exception as e:
+        state.status = f"Failed ({str(e)})"
+        
+    save_all_states()
     return templates.TemplateResponse(
         request=request,
         name="partials/file_card.html",

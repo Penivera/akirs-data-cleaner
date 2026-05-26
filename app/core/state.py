@@ -29,6 +29,12 @@ class FileState:
     primary_key_field: Optional[str]
     output_pattern: str
     health_report: Optional[Dict[str, Any]]
+    verify_db: bool
+    verify_db_query_field: Optional[str]
+    verify_db_target_column: str
+    verify_db_fuzzy: bool
+    db_matches: List[Dict[str, Any]]
+    db_decisions: Dict[str, str]
 
     def __init__(self):
         self.id = str(uuid.uuid4())
@@ -55,6 +61,12 @@ class FileState:
         self.primary_key_field = "NUBAN"
         self.output_pattern = "{filename}"
         self.health_report = None
+        self.verify_db = False
+        self.verify_db_query_field = ""
+        self.verify_db_target_column = "ANY"
+        self.verify_db_fuzzy = False
+        self.db_matches = []
+        self.db_decisions = {}
 
 
 # Global state to keep track of uploaded files in memory
@@ -158,8 +170,10 @@ class AnalysisState:
             "metric_col": "",
             "currency_col": "",
             "flow_type_col": "",
-            "inflow_indicator": "INFLOW",
-            "outflow_indicator": "OUTFLOW",
+            "credit_col": "",
+            "debit_col": "",
+            "inflow_indicator": "CR",
+            "outflow_indicator": "DR",
             "flow_filter": "All",
             "limit": 50,
             "title": "DATA ANALYSIS REPORT",
@@ -167,7 +181,8 @@ class AnalysisState:
             "concat_order": {},
             "concat_separator": " ",
             "cumulate_by_nuban": False,
-            "nuban_col": ""
+            "nuban_col": "",
+            "min_amount_filter": None
         }
         self.report_path = ""
         self.upload_hash = ""
@@ -210,3 +225,85 @@ class NubanState:
         self.resolved_filename = None
 
 nuban_db: Dict[str, NubanState] = {}
+
+class IntelSyncState:
+    id: str
+    original_filename: str
+    saved_path: str
+    headers: List[str]
+    sheet_names: List[str]
+    selected_sheets: List[str]
+    status: str
+    upload_hash: str
+    upload_size: int
+    uploaded_at: float
+    matched_records: List[Dict[str, Any]]
+    unique_records_count: int
+    unique_path: Optional[str] = None
+    unique_filename: Optional[str] = None
+    verify_db_query_field: str
+    verify_db_target_column: str
+    verify_db_fuzzy: bool
+
+    def __init__(self):
+        self.id = str(uuid.uuid4())
+        self.headers = []
+        self.sheet_names = []
+        self.selected_sheets = []
+        self.status = "New"
+        self.upload_hash = ""
+        self.upload_size = 0
+        self.uploaded_at = 0.0
+        self.matched_records = []
+        self.unique_records_count = 0
+        self.unique_path = None
+        self.unique_filename = None
+        self.verify_db_query_field = ""
+        self.verify_db_target_column = "ANY"
+        self.verify_db_fuzzy = False
+
+intelsync_db: Dict[str, IntelSyncState] = {}
+
+import pickle
+import os
+
+DB_DIR = "uploads"
+DB_FILE = os.path.join(DB_DIR, "state_database.pkl")
+
+def save_all_states():
+    os.makedirs(DB_DIR, exist_ok=True)
+    try:
+        temp_file = DB_FILE + ".tmp"
+        data = {
+            "file_db": file_db,
+            "analysis_db": analysis_db,
+            "nuban_db": nuban_db,
+            "intelsync_db": intelsync_db,
+        }
+        with open(temp_file, "wb") as f:
+            pickle.dump(data, f)
+        os.replace(temp_file, DB_FILE)
+    except Exception as e:
+        print(f"Error persisting states: {e}")
+
+def load_all_states():
+    global file_db, analysis_db, nuban_db, intelsync_db
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, "rb") as f:
+                data = pickle.load(f)
+                file_db.clear()
+                file_db.update(data.get("file_db", {}))
+                analysis_db.clear()
+                analysis_db.update(data.get("analysis_db", {}))
+                nuban_db.clear()
+                nuban_db.update(data.get("nuban_db", {}))
+                intelsync_db.clear()
+                intelsync_db.update(data.get("intelsync_db", {}))
+                print(f"Successfully loaded persisted states from {DB_FILE} ({len(file_db)} files, {len(intelsync_db)} syncs)")
+                return
+        except Exception as e:
+            print(f"Error loading persisted states: {e}")
+
+# Initial load
+load_all_states()
