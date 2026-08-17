@@ -109,7 +109,7 @@ def generate_markdown_report(
         ]:
             keep_indices.append((col, header_map[col]))
 
-    # Aggregation dictionaries
+    # Aggregation dictionaries 
     # Struct: { (identity_val, currency_val): {"metric_sum": 0.0, "inflow_sum": 0.0, "outflow_sum": 0.0, "count": 0, "metadata": {}} }
     groups = defaultdict(
         lambda: {
