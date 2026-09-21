@@ -19,9 +19,10 @@
 
         <div class="file-actions" style="display: flex; gap: 0.5rem; align-items: center;">
             {% if 'Synced' in file.status and file.unique_filename %}
-            <a href="/api/download/{{ file.unique_filename }}" class="btn btn-accent" download style="text-decoration: none; font-weight: bold; background: var(--accent); border-color: var(--accent);">
+            <button type="button" class="btn btn-accent" style="font-weight: bold; background: var(--accent); border-color: var(--accent);"
+                onclick="AKIRSAuth.download('/api/download/{{ file.unique_filename }}', '{{ file.unique_filename }}')">
                 📥 Download Unique Only
-            </a>
+            </button>
             {% elif 'Needs' in file.status or 'Uploaded' in file.status %}
             <button class="btn btn-accent" hx-post="/api/intel/config-form/{{ file.id }}" hx-target="#intel-mapping-area-{{ file.id }}">
                 🛠️ Configure Sync

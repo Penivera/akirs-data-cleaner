@@ -6,8 +6,8 @@
         </div>
         <div class="file-actions">
             {% if file.status == 'Generated' %}
-            <a href="/api/analyse/view-report/{{ file.report_filename }}" target="_blank" class="btn btn-primary" style="text-decoration: none;">View Report</a>
-            <a href="/api/analyse/download/{{ file.report_filename }}" class="btn btn-success" style="text-decoration: none;">Download Report</a>
+            <button type="button" class="btn btn-primary" onclick="AKIRSAuth.view('/api/analyse/view-report/{{ file.report_filename }}')">View Report</button>
+            <button type="button" class="btn btn-success" onclick="AKIRSAuth.download('/api/analyse/download/{{ file.report_filename }}', '{{ file.report_filename }}')">Download Report</button>
             <button class="btn btn-warning" hx-post="/api/analyse/components/config-form/{{ file.id }}" hx-target="#analyse-config-area-{{ file.id }}">Re-configure</button>
             {% elif file.status == 'Configured' %}
             <button class="btn btn-warning" hx-post="/api/analyse/components/config-form/{{ file.id }}" hx-target="#analyse-config-area-{{ file.id }}">Edit Config</button>

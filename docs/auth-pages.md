@@ -1,32 +1,32 @@
 # Account pages
 
-> **Updated 2026-09-21 — backend contract changed.** The browser flow was built
-> against the pre-2FA contract (login returned tokens and an HttpOnly
-> `akirs_access` cookie). Authentication is now **Bearer-only (no auth cookie)**
-> and **login returns an MFA challenge**, not tokens. The account pages and their
-> JavaScript must be updated to the flow in
-> [`frontend-integration.md`](frontend-integration.md). The notes below describe
-> the current backend reality.
+> **Updated 2026-09-21 — frontend implemented.** The account pages now implement
+> the Bearer-only, mandatory-2FA flow. Tokens are stored in `localStorage`; the
+> MFA challenge in `sessionStorage`; no auth cookie is used. The workspace shell
+> is served publicly at `/app` and loads content over HTMX with the bearer token.
+> See [`frontend-integration.md`](frontend-integration.md) for the underlying
+> patterns.
 
 ## Public pages
 
 `/auth` and its sub-routes are public and hold no data:
 
-| Route | Intended page | Backend |
+| Route | Page | Backend |
 | --- | --- | --- |
-| `/auth` | Login | `POST /api/auth/login` → MFA challenge |
-| `/auth?mode=signup` | Create account | `POST /api/auth/signup` (implemented) |
-| `/auth/pending` | Awaiting admin approval | informational |
-| `/auth/setup` | TOTP setup (QR + code) | `POST /api/auth/2fa/setup` then `/2fa/enable` |
+| `/auth` | Login / create account | `POST /api/auth/login`, `POST /api/auth/signup` |
+| `/auth/setup` | TOTP setup (setup key + code) | `POST /api/auth/2fa/setup`, `/2fa/enable` |
 | `/auth/mfa` | TOTP / recovery-code login | `POST /api/auth/2fa/verify` |
+| `/auth/recovery` | One-time recovery codes | returned by `/2fa/enable` |
+| `/auth/pending` | Awaiting admin approval | informational |
+| `/app` | Workspace shell (no data) | loads `/api/view/process` via HTMX |
 
 The green/gold styling is scoped to `.auth-page` and does not affect the workspace.
 
 ## Current backend behaviour
 
-- **Signup, approval and mandatory 2FA are implemented** (see
-  `docs/auth-api.md`). New accounts are pending until an admin approves them, and
-  every user must set up TOTP on first login.
+- **Signup, approval and mandatory 2FA are implemented** (see `docs/auth-api.md`).
+  New accounts are pending until an admin approves them, and every user must set up
+  TOTP on first login.
 - **Login returns `MfaChallengeResponse`** (`mfa_required` / `setup_required` /
   `challenge_token`). Tokens are only issued after the second factor.
 - **No auth cookie is set.** `get_current_user` reads `Authorization: Bearer`
@@ -36,23 +36,23 @@ The green/gold styling is scoped to `.auth-page` and does not affect the workspa
 - Cross-origin writes are rejected. Auth responses and the workspace document use
   `Cache-Control: no-store`.
 
-## Frontend work still required
+## Implemented browser flow
 
-The account pages currently treat signup/MFA as "not available" and the login
-form assumes a cookie is set on success. To match the backend:
-
-1. Wire `/auth` login to route on the challenge (`setup_required` → `/auth/setup`,
-   `mfa_required` → `/auth/mfa`), storing `challenge_token` in `sessionStorage`.
-2. Implement `/auth/setup` (render `otpauth_url` as a QR, POST `/2fa/enable`,
-   show recovery codes once) and `/auth/mfa` (POST `/2fa/verify`).
-3. Wire signup to `POST /api/auth/signup` and show the pending-approval state.
-4. Store the returned tokens and attach `Authorization: Bearer` to HTMX/fetch and
-   authenticated downloads (no cookies).
-
-See [`frontend-integration.md`](frontend-integration.md) for code snippets.
+1. `/auth` login → `POST /api/auth/login`; route on the challenge
+   (`setup_required` → `/auth/setup`, `mfa_required` → `/auth/mfa`), storing
+   `challenge_token` in `sessionStorage`.
+2. `/auth/setup` → `POST /api/auth/2fa/setup` (shows the setup key), then
+   `POST /api/auth/2fa/enable`; stores tokens and shows recovery codes once.
+3. `/auth/mfa` → `POST /api/auth/2fa/verify` with a TOTP or recovery code; stores
+   tokens and redirects to `/app`.
+4. Signup → `POST /api/auth/signup`, then the pending-approval state.
+5. `static/js/auth-core.js` attaches `Authorization: Bearer` to HTMX/fetch and
+   powers authenticated downloads; `static/js/session.js` guards `/app` and wires
+   logout.
 
 ## Checks
 
 `python -m pytest tests/test_auth_pages.py -q` uses a temporary SQLite database and
-test-only credentials. It checks public pages, protected navigation, the MFA
-challenge login flow, Bearer access, HTMX redirect and cross-origin rejection.
+test-only credentials. It checks public pages, the `/app` shell, protected
+navigation, the MFA challenge login flow, Bearer access, HTMX redirect and
+cross-origin rejection.

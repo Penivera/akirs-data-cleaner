@@ -13,7 +13,7 @@ from starlette_admin import (
     flash,
 )
 from starlette_admin.contrib.sqla import ModelView
-from starlette_admin.exceptions import FormValidationError
+from starlette_admin.exceptions import ActionFailed, FormValidationError
 
 from app.core.models import AuditLog, RecoveryCode, User
 from app.core.security import hash_password
@@ -75,6 +75,7 @@ class UserView(ModelView):
         if not password:
             raise FormValidationError({"password": "A password is required."})
         obj.hashed_password = hash_password(password)
+        self._normalize_email(data, obj)
 
     async def before_edit(
         self,
@@ -87,6 +88,41 @@ class UserView(ModelView):
         password = data.pop("password", None)
         if password:
             obj.hashed_password = hash_password(password)
+        self._normalize_email(data, obj)
+
+    @staticmethod
+    def _normalize_email(data: Dict[str, Any], obj: Any) -> None:
+        email = (data.get("email") or "").strip().lower()
+        if email:
+            data["email"] = email
+            obj.email = email
+
+    async def after_create_committed(self, request: Request, obj: Any) -> None:
+        log_audit(
+            "user_created",
+            user=self._actor(request),
+            status="success",
+            detail=f"target={obj.email}",
+            request=request,
+        )
+
+    async def after_edit_committed(self, request: Request, obj: Any) -> None:
+        log_audit(
+            "user_updated",
+            user=self._actor(request),
+            status="success",
+            detail=f"target={obj.email}",
+            request=request,
+        )
+
+    async def after_delete_committed(self, request: Request, obj: Any) -> None:
+        log_audit(
+            "user_deleted",
+            user=self._actor(request),
+            status="success",
+            detail=f"target={getattr(obj, 'email', 'unknown')}",
+            request=request,
+        )
 
     def _actor(self, request: Request) -> User | None:
         session = request.state.session
@@ -94,6 +130,15 @@ class UserView(ModelView):
         if admin_id is None:
             return None
         return session.get(User, admin_id)
+
+    async def delete(self, request: Request, pks: list) -> int | None:
+        actor = self._actor(request)
+        if actor is not None:
+            remaining = [pk for pk in pks if str(pk) != str(actor.id)]
+            if not remaining:
+                raise ActionFailed("You cannot delete your own account.")
+            pks = remaining
+        return await super().delete(request, pks)
 
     @action(
         name="approve",
@@ -129,8 +174,9 @@ class UserView(ModelView):
     )
     async def reject(self, request: Request, selection: ActionSelection) -> None:
         session = request.state.session
-        users = await selection.rows()
         actor = self._actor(request)
+        selected = await selection.rows()
+        users = [user for user in selected if actor is None or user.id != actor.id]
         for user in users:
             user.is_approved = False
             user.is_active = False
@@ -144,7 +190,11 @@ class UserView(ModelView):
                 detail=f"target={user.email}",
                 request=request,
             )
-        flash(request, f"Disabled {len(users)} account(s).", "success")
+        skipped = len(selected) - len(users)
+        message = f"Disabled {len(users)} account(s)."
+        if skipped:
+            message += f" Skipped {skipped} (you cannot disable your own account)."
+        flash(request, message, "success")
 
     @action(
         name="reset_2fa",

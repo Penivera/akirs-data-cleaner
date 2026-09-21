@@ -179,12 +179,15 @@ Start TOTP setup for a user in the `mfa_setup` challenge state.
 ```json
 {
   "secret": "JBSWY3DPEHPK3PXP",
-  "otpauth_url": "otpauth://totp/AKIRS%20Data%20Toolkit:user@akirs.local?secret=...&issuer=AKIRS%20Data%20Toolkit"
+  "otpauth_url": "otpauth://totp/AKIRS%20Data%20Toolkit:user@akirs.local?secret=...&issuer=AKIRS%20Data%20Toolkit",
+  "qr_svg": "data:image/svg+xml;charset=utf-8,%3Csvg..."
 }
 ```
 
-The frontend renders `otpauth_url` as a QR code (or shows `secret` for manual
-entry). The secret is stored server-side as `pending_totp_secret` until enabled.
+`qr_svg` is a ready-to-use SVG data URI — put it straight into an `<img src>` so
+the user can **scan the QR code** with an authenticator app. `secret` and
+`otpauth_url` remain available for manual entry. The secret is stored server-side
+as `pending_totp_secret` until enabled.
 
 ---
 

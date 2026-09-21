@@ -15,6 +15,7 @@ from app.core.mfa import (
     generate_totp_secret,
     hash_recovery_code,
     provisioning_uri,
+    qr_svg_data_uri,
     verify_totp,
 )
 from app.core.models import RecoveryCode, RefreshToken, User
@@ -86,6 +87,7 @@ class MfaSetupRequest(BaseModel):
 class MfaSetupResponse(BaseModel):
     secret: str
     otpauth_url: str
+    qr_svg: str
 
 
 class MfaEnableRequest(BaseModel):
@@ -302,10 +304,12 @@ def setup_2fa(
     user.pending_totp_secret = secret
     db.commit()
 
+    otpauth_url = provisioning_uri(secret, user.email)
     log_audit("2fa_setup_started", user=user, request=request)
     return MfaSetupResponse(
         secret=secret,
-        otpauth_url=provisioning_uri(secret, user.email),
+        otpauth_url=otpauth_url,
+        qr_svg=qr_svg_data_uri(otpauth_url),
     )
 
 

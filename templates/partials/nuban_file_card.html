@@ -6,7 +6,7 @@
         </div>
         <div class="file-actions">
             {% if file.status == 'Resolved' %}
-            <a href="/api/download/{{ file.resolved_filename }}" class="btn btn-success" style="text-decoration: none;">Download Resolved</a>
+            <button type="button" class="btn btn-success" onclick="AKIRSAuth.download('/api/download/{{ file.resolved_filename }}', '{{ file.resolved_filename }}')">Download Resolved</button>
             <button class="btn btn-warning" hx-post="/api/nuban/config-form/{{ file.id }}" hx-target="#nuban-config-area-{{ file.id }}">Re-configure</button>
             {% elif file.status == 'Configured' %}
             <button class="btn btn-warning" hx-post="/api/nuban/config-form/{{ file.id }}" hx-target="#nuban-config-area-{{ file.id }}">Edit Config</button>

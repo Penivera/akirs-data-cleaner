@@ -46,9 +46,10 @@
             {% endif %}
             {% set out_filename = file.cleaned_path.split('/')[-1] if file.cleaned_path else (file.original_filename |
             replace('.xlsx', '.csv')) %}
-            <a href="/api/download/{{ out_filename }}" class="btn btn-accent" download style="text-decoration: none;">
+            <button type="button" class="btn btn-accent"
+                onclick="AKIRSAuth.download('/api/download/{{ out_filename }}', '{{ out_filename }}')">
                 📥 Download
-            </a>
+            </button>
             {% elif file.status == 'Ready' %}
             <button class="btn btn-outline" hx-post="/api/components/mapping/{{ file.id }}"
                 hx-target="#mapping-area-{{ file.id }}">

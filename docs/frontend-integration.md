@@ -1,7 +1,11 @@
 # Frontend Integration Guide — JWT Auth, Signup & TOTP 2FA (No Cookies)
 
-> Audience: frontend engineer. The backend is implemented; the UI is not.
-> See `docs/auth-api.md` for the endpoint contract.
+> **Status: implemented (2026-09-21).** The flow below is live in
+> `static/js/auth-core.js`, `static/js/auth.js`, `static/js/session.js`,
+> `templates/auth.html`, and the public `/app` shell. This document is kept as the
+> reference for how the pieces fit together and for future changes.
+
+> Audience: frontend engineer. See `docs/auth-api.md` for the endpoint contract.
 
 ## The one thing to understand first
 
@@ -221,8 +225,9 @@ if (res.status === 200) {
 }
 ```
 
-- Render the QR client-side from `otpauth_url` with a small QR library (e.g.
-  `qrcode`), or display `secret` for manual entry. Do not call external QR services.
+- The setup response includes `qr_svg`, an SVG data URI generated server-side.
+  Put it straight into `<img src>` so the user can **scan the QR code**; show
+  `secret` as a manual-entry fallback. No client-side QR library is needed.
 - **Enable** (first login): POST `/api/auth/2fa/enable` with
   `{ challenge_token, code }`. On `200`, store tokens, then **show the returned
   `recovery_codes` once** and require the user to acknowledge before continuing.

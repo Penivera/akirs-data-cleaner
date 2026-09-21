@@ -62,6 +62,7 @@ def _complete_setup(client, challenge):
     assert setup.status_code == 200, setup.text
     secret = setup.json()['secret']
     assert setup.json()['otpauth_url'].startswith('otpauth://')
+    assert setup.json()['qr_svg'].startswith('data:image/svg+xml')
     code = pyotp.TOTP(secret).now()
     enable = client.post(
         '/api/auth/2fa/enable', json={'challenge_token': challenge, 'code': code}
@@ -79,10 +80,21 @@ def _full_login(client, credentials):
 
 def test_account_pages_are_public_and_workspace_requires_login():
     with TestClient(app) as client:
-        for path in ['/auth', '/auth/verify', '/auth/setup', '/auth/pending', '/auth/mfa']:
+        for path in ['/auth', '/auth/verify', '/auth/setup', '/auth/pending', '/auth/mfa', '/auth/recovery']:
             response = client.get(path)
             assert response.status_code == 200
             assert 'Cache-Control' in response.headers
+        assert client.get('/app').status_code == 200
+        shell = client.get('/app').text
+        assert '/static/js/auth-core.js' in shell
+        assert '/static/js/session.js' in shell
+        assert 'id="main-content"' in shell
+        assert 'id="admin-links"' in shell
+        assert '/admin/user/list' in shell and '/admin/audit-log/list' in shell
+        auth_page = client.get('/auth').text
+        assert 'id="login-form"' in auth_page and 'id="setup-form"' in auth_page
+        assert 'id="setup-qr"' in auth_page
+        assert '/static/js/auth-core.js' in auth_page
         response = client.get('/', headers={'Accept': 'text/html'}, follow_redirects=False)
         assert response.status_code == 303
         assert response.headers['location'] == '/auth'

@@ -14,13 +14,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `is_approved` filter. Approve/Reject/Reset are themselves written to the audit
   log with the acting administrator recorded.
 - **Mandatory TOTP two-factor authentication** (`app/core/mfa.py`):
-  - `POST /api/auth/2fa/setup` — returns a secret and `otpauth://` provisioning URI.
+  - `POST /api/auth/2fa/setup` — returns a secret, the `otpauth://` provisioning
+    URI, and `qr_svg` (a scannable SVG QR code data URI rendered with `segno`).
   - `POST /api/auth/2fa/enable` — verifies a code and issues 10 one-time recovery codes.
   - `POST /api/auth/2fa/verify` — completes login with a TOTP code or a recovery code.
   - Recovery codes are stored hashed and consumed once.
   - All logins now return an MFA challenge instead of tokens; tokens are only issued
     after the second factor is satisfied. Users without 2FA are forced to set it up
     on first login.
+- **`segno` dependency** for server-side QR generation (zero-dependency, no Pillow).
 - **New models/fields**: `User.is_approved`, `User.totp_secret`,
   `User.pending_totp_secret`, `User.totp_enabled`, and the `RecoveryCode` table.
 - **Additive migration** (`app/core/database.py`): `init_db()` adds the new user
@@ -35,7 +37,23 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   approval`) or disabled accounts.
 - `UserOut` now includes `is_approved` and `totp_enabled`.
 - Superuser seeded by the bootstrap is created with `is_approved = True`.
-- `requirements.txt` adds `pyotp==2.10.0` and `tzdata==2026.4`.
+- `requirements.txt` adds `pyotp==2.10.0`, `segno==1.6.6`, and `tzdata==2026.4`.
+
+### Frontend (cookie-free auth UI)
+- **Shared auth core** (`static/js/auth-core.js`): token storage
+  (`localStorage`), MFA challenge (`sessionStorage`), silent refresh, `apiFetch`,
+  authenticated `download`/`view`/batch-zip helpers, HTMX `Authorization`
+  injection, and 401 handling.
+- **Account flow** (`static/js/auth.js`, `templates/auth.html`): login → MFA
+  challenge routing, signup with pending-approval state, authenticator setup
+  (scannable QR + manual setup key + code), TOTP/recovery-code verification, and
+  one-time recovery-code display.
+- **Workspace shell** (`/app`, `static/js/session.js`): public, data-free shell
+  that guards on the stored token and loads content over HTMX with the bearer
+  token. `/` still redirects unauthenticated browser navigation to `/auth`.
+- **Authenticated downloads**: all download/report links and the batch ZIP now go
+  through `AKIRSAuth` (fetch + blob) instead of plain `<a href>`.
+- `/auth/recovery` route added; account pages remain public.
 
 ## [0.2.0] - 2026-09-21
 
@@ -87,7 +105,6 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Startup logs a warning when `SECRET_KEY` is missing, default, or under 32 bytes.
 
 ### Not included (pending)
-- **Frontend integration.** The login page, signup page, 2FA setup/verify screens,
-  token storage, HTMX `Authorization` header injection, 401/refresh handling, and
-  authenticated downloads are not yet implemented. See
-  `docs/frontend-integration.md`. Until then, browser navigation to `/` returns `401`.
+- **Frontend integration.** Implemented in the `[Unreleased]` section above
+  (account pages, mandatory-2FA UI, `/app` shell, authenticated downloads). See
+  `docs/frontend-integration.md` and `docs/auth-pages.md`.

@@ -4,6 +4,7 @@ import secrets
 from fastapi import Depends, FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, RedirectResponse
+from sqlalchemy import func
 from urllib.parse import urlsplit
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -18,40 +19,64 @@ from app.core.config import settings
 from app.core.database import SessionLocal, init_db
 from app.core.deps import get_current_user
 from app.core.models import User
-from app.core.security import hash_password
+from app.core.security import hash_password, verify_password
 
 logger = logging.getLogger("app.startup")
 logging.basicConfig(level=logging.INFO)
 
 
 def seed_superuser() -> None:
-    """Create the initial superuser account when the users table is empty."""
+    """Create the superuser on first run, and keep it in sync with ADMIN_* config."""
     db = SessionLocal()
     try:
-        if db.query(User).count() > 0:
+        email = settings.admin_email.strip().lower()
+        user = db.query(User).filter(func.lower(User.email) == email).first()
+
+        if user is None:
+            password = settings.admin_password or secrets.token_urlsafe(12)
+            user = User(
+                email=email,
+                full_name="Administrator",
+                hashed_password=hash_password(password),
+                is_active=True,
+                is_approved=True,
+                is_superuser=True,
+            )
+            db.add(user)
+            db.commit()
+
+            if settings.admin_password:
+                logger.info("Seeded superuser %s", user.email)
+            else:
+                logger.warning(
+                    "Seeded superuser %s with generated password: %s "
+                    "(set ADMIN_PASSWORD to control this)",
+                    user.email,
+                    password,
+                )
             return
 
-        password = settings.admin_password or secrets.token_urlsafe(12)
-        user = User(
-            email=settings.admin_email.strip().lower(),
-            full_name="Administrator",
-            hashed_password=hash_password(password),
-            is_active=True,
-            is_approved=True,
-            is_superuser=True,
-        )
-        db.add(user)
-        db.commit()
+        # The account already exists. Reconcile it with the current configuration
+        # so that setting or rotating ADMIN_PASSWORD takes effect on restart.
+        changed = False
+        if not user.is_superuser:
+            user.is_superuser = True
+            changed = True
+        if not user.is_approved:
+            user.is_approved = True
+            changed = True
+        if not user.is_active:
+            user.is_active = True
+            changed = True
+        if settings.admin_password and not verify_password(
+            settings.admin_password, user.hashed_password
+        ):
+            user.hashed_password = hash_password(settings.admin_password)
+            changed = True
 
-        if settings.admin_password:
-            logger.info("Seeded superuser %s", user.email)
-        else:
-            logger.warning(
-                "Seeded superuser %s with generated password: %s "
-                "(set ADMIN_PASSWORD to control this)",
-                user.email,
-                password,
-            )
+        if changed:
+            db.commit()
+            logger.info("Reconciled superuser %s from ADMIN_* configuration", user.email)
     finally:
         db.close()
 
@@ -81,7 +106,7 @@ async def browser_auth(request, call_next):
         response = RedirectResponse("/auth", status_code=303)
     elif response.status_code == 401 and request.headers.get("hx-request") == "true":
         response.headers["HX-Redirect"] = "/auth"
-    if request.url.path == "/" or request.url.path.startswith(("/auth", "/api/auth")):
+    if request.url.path == "/" or request.url.path.startswith(("/auth", "/api/auth", "/app")):
         response.headers["Cache-Control"] = "no-store"
     return response
 

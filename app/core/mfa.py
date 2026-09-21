@@ -3,6 +3,7 @@ import secrets
 from typing import List
 
 import pyotp
+import segno
 
 from app.core.config import settings
 
@@ -15,6 +16,11 @@ def provisioning_uri(secret: str, account_name: str) -> str:
     return pyotp.totp.TOTP(secret).provisioning_uri(
         name=account_name, issuer_name=settings.totp_issuer
     )
+
+
+def qr_svg_data_uri(otpauth_url: str) -> str:
+    """Render an otpauth:// URI as a scannable SVG QR code data URI."""
+    return segno.make(otpauth_url, error="m").svg_data_uri(scale=6, border=2)
 
 
 def verify_totp(secret: str, code: str, valid_window: int = 1) -> bool:

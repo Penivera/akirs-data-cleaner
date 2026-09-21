@@ -27,6 +27,11 @@
             <p class="akirs-sub">Akwa Ibom State Internal Revenue Service administrative platform for intelligent
                 data manipulation and audit</p>
             <button type="button" id="logout-button" style="position:relative;z-index:1;margin-top:1rem;padding:.5rem 1rem;background:white;color:var(--primary);border:0;border-radius:.5rem;cursor:pointer">Log out of all devices</button>
+            <div id="admin-links" style="display:none;position:relative;z-index:1;margin-top:.75rem;gap:.5rem;justify-content:center;flex-wrap:wrap">
+                <a href="/admin" target="_blank" rel="noopener" style="padding:.4rem .8rem;background:rgba(255,255,255,.15);color:white;border:1px solid rgba(255,255,255,.4);border-radius:.5rem;text-decoration:none;font-size:.85rem">Admin dashboard</a>
+                <a href="/admin/user/list" target="_blank" rel="noopener" style="padding:.4rem .8rem;background:rgba(255,255,255,.15);color:white;border:1px solid rgba(255,255,255,.4);border-radius:.5rem;text-decoration:none;font-size:.85rem">Users</a>
+                <a href="/admin/audit-log/list" target="_blank" rel="noopener" style="padding:.4rem .8rem;background:rgba(255,255,255,.15);color:white;border:1px solid rgba(255,255,255,.4);border-radius:.5rem;text-decoration:none;font-size:.85rem">Audit log</a>
+            </div>
         </header>
 
         <!-- Segmented Ingestion Navigation -->
@@ -77,10 +82,8 @@
             </a>
         </nav>
 
-        <!-- Main Dynamic Content Container -->
-        <main id="main-content" class="main-content">
-            {% include 'partials/process_view.html' %}
-        </main>
+        <!-- Main Dynamic Content Container (loaded via HTMX with the bearer token) -->
+        <main id="main-content" class="main-content"></main>
 
         <!-- Government Administrative Footer -->
         <footer
@@ -90,6 +93,7 @@
         </footer>
     </div>
 
+    <script src="/static/js/auth-core.js"></script>
     <script src="/static/js/app.js"></script>
     <script src="/static/js/session.js"></script>
 </body>
