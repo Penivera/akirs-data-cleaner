@@ -7,10 +7,10 @@
     <title>Account access · AKIRS Data Toolkit</title>
     <link rel="icon" href="/static/akirs.png">
     <link rel="stylesheet" href="/static/css/style.css?v=1.0.2">
-    <link rel="stylesheet" href="/static/css/auth.css">
+    <link rel="stylesheet" href="/static/css/auth.css?v={{ asset_versions.auth_css }}">
     <style>.auth-recovery-codes{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:18px 0;padding:0;list-style:none;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.auth-recovery-codes li{background:var(--bg-color);border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;text-align:center;letter-spacing:1px}</style>
-    <script src="/static/js/auth-core.js" defer></script>
-    <script src="/static/js/auth.js" defer></script>
+    <script src="/static/js/auth-core.js?v={{ asset_versions.auth_core_js }}" defer></script>
+    <script src="/static/js/auth.js?v={{ asset_versions.auth_js }}" defer></script>
 </head>
 <body class="auth-page">
     <header class="auth-header"><a href="/auth" class="auth-brand"><img src="/static/akirs.png" alt="AKIRS crest"><span>AKIRS <strong>Data Toolkit</strong></span></a><span class="auth-header-note">Secure staff access</span></header>
@@ -18,8 +18,9 @@
         <aside class="auth-intro">
             <span class="auth-eyebrow">AKWA IBOM STATE INTERNAL REVENUE SERVICE</span>
             <h1>Better data.<br>Stronger decisions.</h1>
-            <p>Your workspace for data preparation, verification and reporting. One secure account to bring it all together.</p>
-            <ol class="auth-steps"><li><span>01</span><div><strong>Create your account</strong><p>Tell us a little about yourself.</p></div></li><li><span>02</span><div><strong>Secure your account</strong><p>Connect your authenticator app.</p></div></li><li><span>03</span><div><strong>Get access</strong><p>An administrator will review your account.</p></div></li></ol>
+            <p>Your workspace for data preparation, verification and reporting.</p>
+            <ol class="auth-steps" id="login-instructions"><li><span>01</span><div><strong>Enter your credentials</strong><p>Use your account email and password.</p></div></li><li><span>02</span><div><strong>Access your workspace</strong><p>Log in to continue working with your data.</p></div></li></ol>
+            <ol class="auth-steps" id="signup-instructions" hidden><li><span>01</span><div><strong>Create your account</strong><p>Fill in your details.</p></div></li><li><span>02</span><div><strong>Secure your account</strong><p>Connect your authenticator app.</p></div></li><li><span>03</span><div><strong>Get access</strong><p>An administrator will review your account.</p></div></li></ol>
             <div class="auth-intro-footer">Built for trusted work. Protected at every step.</div>
         </aside>
         <section class="auth-card" aria-label="Account access">
@@ -29,12 +30,12 @@
                 <div class="auth-tabs" role="tablist" aria-label="Account action"><button id="login-tab" type="button" role="tab" aria-selected="true" aria-controls="login-panel">Log in</button><button id="signup-tab" type="button" role="tab" aria-selected="false" aria-controls="signup-panel" tabindex="-1">Create account</button></div>
                 <div id="login-panel" role="tabpanel" aria-labelledby="login-tab">
                     <h2>Welcome back</h2><p class="auth-description">Log in to your AKIRS workspace.</p>
-                    <form id="login-form"><label for="login-email">Email address</label><input id="login-email" name="email" type="email" autocomplete="username" required placeholder="you@example.com"><label for="login-password">Password</label><input id="login-password" name="password" type="password" autocomplete="current-password" required><button class="auth-primary" type="submit">Log in to workspace <span aria-hidden="true">→</span></button></form>
+                    <form id="login-form"><label for="login-email">Email address</label><input id="login-email" name="email" type="email" autocomplete="username" required placeholder="you@example.com"><label for="login-password">Password</label><div class="auth-password"><input id="login-password" name="password" type="password" autocomplete="current-password" required><button id="peek-login-password" type="button" aria-controls="login-password" aria-label="Show login password" aria-pressed="false">Show</button></div><button class="auth-primary" type="submit">Log in to workspace <span aria-hidden="true">→</span></button></form>
                     <p class="auth-footnote">Use the account provided by your administrator.</p>
                 </div>
                 <div id="signup-panel" role="tabpanel" aria-labelledby="signup-tab" hidden>
                     <h2>Create your account</h2><p class="auth-description">Start with your details. An administrator will approve your account, then you'll set up your authenticator.</p>
-                    <form id="signup-form"><label for="full-name">Full name</label><input id="full-name" name="full_name" autocomplete="name" maxlength="255" required placeholder="Enter your full name"><label for="signup-email">Email address</label><input id="signup-email" name="email" type="email" autocomplete="email" required placeholder="you@example.com"><label for="signup-password">Password</label><input id="signup-password" name="password" type="password" autocomplete="new-password" minlength="8" required aria-describedby="password-help"><small id="password-help">Use at least 8 characters.</small><label for="confirm-password">Confirm password</label><div class="auth-password"><input id="confirm-password" name="confirm_password" type="password" autocomplete="new-password" minlength="8" required><button id="peek-password" type="button" aria-label="Show confirmation password" aria-pressed="false">Show</button></div><button class="auth-primary" type="submit">Create account <span aria-hidden="true">→</span></button></form>
+                    <form id="signup-form"><label for="full-name">Full name</label><input id="full-name" name="full_name" autocomplete="name" maxlength="255" required placeholder="Enter your full name"><label for="signup-email">Email address</label><input id="signup-email" name="email" type="email" autocomplete="email" required placeholder="you@example.com"><label for="signup-password">Password</label><input id="signup-password" name="password" type="password" autocomplete="new-password" minlength="8" required aria-describedby="password-help"><small id="password-help">Use at least 8 characters.</small><label for="confirm-password">Confirm password</label><div class="auth-password"><input id="confirm-password" name="confirm_password" type="password" autocomplete="new-password" minlength="8" required><button id="peek-password" type="button" aria-controls="confirm-password" aria-label="Show confirmation password" aria-pressed="false">Show</button></div><button class="auth-primary" type="submit">Create account <span aria-hidden="true">→</span></button></form>
                 </div>
             </section>
 
