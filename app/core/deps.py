@@ -1,7 +1,7 @@
 from typing import Generator, Optional
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -27,14 +27,16 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def get_current_user(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
     db: Session = Depends(get_db),
 ) -> User:
-    if credentials is None or not credentials.credentials:
+    token = credentials.credentials if credentials else request.cookies.get("akirs_access")
+    if not token:
         raise _credentials_error
 
     try:
-        payload = decode_token(credentials.credentials)
+        payload = decode_token(token)
     except jwt.PyJWTError:
         raise _credentials_error
 

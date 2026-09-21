@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -95,7 +95,7 @@ def _issue_tokens(db: Session, user: User) -> TokenResponse:
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
+def login(payload: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
     email = payload.email.strip().lower()
     user = (
         db.query(User)
@@ -128,6 +128,11 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
     db.refresh(user)
 
     tokens = _issue_tokens(db, user)
+    response.set_cookie(
+        "akirs_access", tokens.access_token, httponly=True, samesite="strict",
+        secure=request.url.scheme == "https" or settings.admin_session_https_only,
+        max_age=tokens.expires_in, path="/",
+    )
     log_audit("login", user=user, status="success", request=request)
     return tokens
 
@@ -191,9 +196,11 @@ def refresh(payload: RefreshRequest, request: Request, db: Session = Depends(get
 def logout(
     payload: LogoutRequest,
     request: Request,
+    response: Response,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    response.delete_cookie("akirs_access", path="/")
     if payload.all_devices:
         db.query(RefreshToken).filter(
             RefreshToken.user_id == current_user.id,

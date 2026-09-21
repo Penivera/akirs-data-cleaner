@@ -1,5 +1,10 @@
 # Authentication & Admin API Reference
 
+> Browser integration: `/auth` now provides account pages, and successful login
+> also sets an HttpOnly access cookie for workspace navigation. Bearer tokens
+> remain supported. See [Account pages](auth-pages.md) for the supported flow,
+> session behavior and the signup/MFA backend features that are still unavailable.
+
 > Added 2026-09-21. Covers JWT authentication and the Starlette Admin dashboard.
 
 ## Overview
