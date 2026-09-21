@@ -1,6 +1,12 @@
 *.xlsx
 *.csv
 
+# Local database (users, audit log)
+data/
+*.db
+*.db-journal
+*.sqlite3
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

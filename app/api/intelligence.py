@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, Request
+from fastapi import APIRouter, UploadFile, File, Request, Depends
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 import hashlib
@@ -6,7 +6,10 @@ import os
 import time
 from typing import List, Dict, Any
 
+from app.core.deps import get_current_user
+from app.core.models import User
 from app.core.state import intelsync_db, IntelSyncState, PRESETS, save_all_states
+from app.services.audit import log_audit
 from app.services.cleaner import load_tabular_rows, find_header_row_and_headers_from_rows, save_cleaned_records, auto_map_headers, extract_records
 from app.services.intelligence import check_file_records_against_db
 
@@ -22,7 +25,11 @@ async def get_intel_view(request: Request):
     )
 
 @router.post("/api/intel/upload", response_class=HTMLResponse)
-async def intel_upload(request: Request, file: List[UploadFile] = File(...)):
+async def intel_upload(
+    request: Request,
+    file: List[UploadFile] = File(...),
+    current_user: User = Depends(get_current_user),
+):
     os.makedirs("uploads", exist_ok=True)
     
     files_to_process = file if isinstance(file, list) else [file]
@@ -76,6 +83,13 @@ async def intel_upload(request: Request, file: List[UploadFile] = File(...)):
         intelsync_db[state.id] = state
         save_all_states()
         processed_states.append(state)
+        log_audit(
+            "intel_upload",
+            user=current_user,
+            filename=state.original_filename,
+            status=state.status,
+            request=request,
+        )
 
     return templates.TemplateResponse(
         request=request,
@@ -104,7 +118,11 @@ async def get_intel_config_form(request: Request, file_id: str):
     )
 
 @router.post("/api/intel/save-config/{file_id}", response_class=HTMLResponse)
-async def save_intel_config(request: Request, file_id: str):
+async def save_intel_config(
+    request: Request,
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+):
     state = intelsync_db.get(file_id)
     if not state:
         return "File not found"
@@ -119,6 +137,13 @@ async def save_intel_config(request: Request, file_id: str):
         state.selected_sheets = form_data.getlist("selected_sheets")
         await process_intel_sync(state)
         save_all_states()
+        log_audit(
+            "intel_sync",
+            user=current_user,
+            filename=state.original_filename,
+            status=state.status,
+            request=request,
+        )
 
     return templates.TemplateResponse(
         request=request,
@@ -127,10 +152,21 @@ async def save_intel_config(request: Request, file_id: str):
     )
 
 @router.delete("/api/intel/delete/{file_id}")
-async def delete_intel_file(file_id: str):
-    if file_id in intelsync_db:
+async def delete_intel_file(
+    request: Request,
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    state = intelsync_db.get(file_id)
+    if state is not None:
         del intelsync_db[file_id]
         save_all_states()
+        log_audit(
+            "intel_delete",
+            user=current_user,
+            filename=state.original_filename,
+            request=request,
+        )
     return Response(status_code=204)
 
 async def process_intel_sync(state: IntelSyncState):

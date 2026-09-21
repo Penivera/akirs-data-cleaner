@@ -56,3 +56,46 @@ If you want to manually run the migration with the hardcoded mappings (make sure
 python migrate_data.py
 ```
 This will generate and log the cleanup process straight to your terminal and save the output CSV in the same parent or `cleaned/` folder.
+
+## Authentication & Admin
+
+The application is protected by JWT authentication and ships with a
+[Starlette Admin](https://jowilf.github.io/starlette-admin/) dashboard.
+
+### How it works
+
+- **App API/UI**: stateless JWT sent in the `Authorization: Bearer <token>` header.
+  Access tokens expire after `ACCESS_TOKEN_EXPIRE_MINUTES` (default 30); refresh
+  tokens after `REFRESH_TOKEN_EXPIRE_DAYS` (default 7). No cookies are used.
+- **Admin (`/admin`)**: Starlette Admin uses its own session cookie and is
+  restricted to users with `is_superuser = True`.
+- **Storage**: SQLAlchemy. SQLite (`data/app.db`) by default; set `DATABASE_URL`
+  to a PostgreSQL URL to switch.
+
+### Auth endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/auth/login` | `{ "email", "password" }` → access + refresh tokens |
+| `POST` | `/api/auth/refresh` | `{ "refresh_token" }` → rotated token pair |
+| `POST` | `/api/auth/logout` | `{ "refresh_token", "all_devices" }` → revoke tokens |
+| `GET`  | `/api/auth/me` | Current user profile (Bearer required) |
+
+### Managing users
+
+A superuser is seeded on first startup from `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
+If `ADMIN_PASSWORD` is unset, a random password is generated and logged once.
+Create and manage further accounts from the `/admin` dashboard, where every
+upload, download, processing and sync action is also recorded in the audit log.
+
+### Required environment variables
+
+See `.env.example`. At minimum set a strong `SECRET_KEY`.
+
+### Further reading
+
+- [`docs/auth-api.md`](docs/auth-api.md) — full endpoint reference.
+- [`docs/frontend-integration.md`](docs/frontend-integration.md) — wiring the UI
+  to JWT (login, HTMX header injection, refresh, authenticated downloads).
+- [`CHANGELOG.md`](CHANGELOG.md) — what changed and when.
+

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, Request, Form
+from fastapi import APIRouter, UploadFile, File, Request, Form, Depends
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 import hashlib
@@ -7,7 +7,10 @@ import time
 from io import BytesIO
 from typing import Dict, Any, List
 
+from app.core.deps import get_current_user
+from app.core.models import User
 from app.core.state import file_db, FileState, TARGET_FIELDS, PRESETS, save_all_states
+from app.services.audit import log_audit
 from app.services.cleaner import (
     auto_map_headers,
     extract_records,
@@ -37,7 +40,11 @@ async def read_index(request: Request):
 
 
 @router.post("/api/upload", response_class=HTMLResponse)
-async def upload_file(request: Request, file: List[UploadFile] = File(...)):
+async def upload_file(
+    request: Request,
+    file: List[UploadFile] = File(...),
+    current_user: User = Depends(get_current_user),
+):
     os.makedirs("uploads", exist_ok=True)
     
     files_to_process = file if isinstance(file, list) else [file]
@@ -122,6 +129,13 @@ async def upload_file(request: Request, file: List[UploadFile] = File(...)):
         file_db[state.id] = state
         save_all_states()
         processed_states.append(state)
+        log_audit(
+            "upload",
+            user=current_user,
+            filename=state.original_filename,
+            status=state.status,
+            request=request,
+        )
 
     # Determine display targets for cards
     card_targets = TARGET_FIELDS
@@ -298,15 +312,30 @@ async def save_mapping(request: Request, file_id: str):
 
 
 @router.delete("/api/delete/{file_id}")
-async def delete_file(file_id: str):
-    if file_id in file_db:
+async def delete_file(
+    request: Request,
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    state = file_db.get(file_id)
+    if state is not None:
         del file_db[file_id]
         save_all_states()
+        log_audit(
+            "delete",
+            user=current_user,
+            filename=state.original_filename,
+            request=request,
+        )
     return Response(status_code=204)
 
 
 @router.post("/api/process/{file_id}", response_class=HTMLResponse)
-async def process_file(request: Request, file_id: str):
+async def process_file(
+    request: Request,
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+):
     state = file_db.get(file_id)
     if not state:
         return "File not found"
@@ -370,6 +399,13 @@ async def process_file(request: Request, file_id: str):
         state.status = f"Failed ({str(e)})"
 
     save_all_states()
+    log_audit(
+        "process",
+        user=current_user,
+        filename=state.original_filename,
+        status=state.status,
+        request=request,
+    )
     return templates.TemplateResponse(
         request=request,
         name="partials/file_card.html",
@@ -378,7 +414,11 @@ async def process_file(request: Request, file_id: str):
 
 
 @router.post("/api/duplicates/{file_id}", response_class=HTMLResponse)
-async def resolve_duplicates(request: Request, file_id: str):
+async def resolve_duplicates(
+    request: Request,
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+):
     state = file_db.get(file_id)
     if not state:
         return "File not found"
@@ -452,6 +492,14 @@ async def resolve_duplicates(request: Request, file_id: str):
         state.status = f"Failed ({str(e)})"
 
     save_all_states()
+    log_audit(
+        "resolve_duplicates",
+        user=current_user,
+        filename=state.original_filename,
+        status=state.status,
+        detail=decision,
+        request=request,
+    )
     return templates.TemplateResponse(
         request=request,
         name="partials/file_card.html",
@@ -460,7 +508,11 @@ async def resolve_duplicates(request: Request, file_id: str):
 
 
 @router.post("/api/db-resolve/{file_id}", response_class=HTMLResponse)
-async def resolve_db(request: Request, file_id: str):
+async def resolve_db(
+    request: Request,
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+):
     state = file_db.get(file_id)
     if not state:
         return "File not found"
@@ -501,6 +553,13 @@ async def resolve_db(request: Request, file_id: str):
         state.status = f"Failed ({str(e)})"
         
     save_all_states()
+    log_audit(
+        "resolve_db",
+        user=current_user,
+        filename=state.original_filename,
+        status=state.status,
+        request=request,
+    )
     return templates.TemplateResponse(
         request=request,
         name="partials/file_card.html",
@@ -613,17 +672,25 @@ async def view_skipped(request: Request, file_id: str):
 
 
 @router.get("/api/download/{filename}")
-async def download_single(filename: str):
+async def download_single(
+    request: Request,
+    filename: str,
+    current_user: User = Depends(get_current_user),
+):
     from fastapi.responses import FileResponse
 
     file_path = os.path.join("cleaned", filename)
     if os.path.exists(file_path):
+        log_audit("download", user=current_user, filename=filename, request=request)
         return FileResponse(path=file_path, filename=filename, media_type="text/csv")
     return HTMLResponse("File not found", status_code=404)
 
 
 @router.post("/api/download-batch")
-async def download_batch(request: Request):
+async def download_batch(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
     from fastapi.responses import StreamingResponse
     import zipfile
 
@@ -632,6 +699,13 @@ async def download_batch(request: Request):
 
     if not selected_files:
         return HTMLResponse("No files selected.", status_code=400)
+
+    log_audit(
+        "download_batch",
+        user=current_user,
+        detail=", ".join(selected_files),
+        request=request,
+    )
 
     zip_buffer = BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:

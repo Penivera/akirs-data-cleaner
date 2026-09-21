@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, Request, Form
+from fastapi import APIRouter, UploadFile, File, Request, Form, Depends
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 import hashlib
@@ -6,7 +6,10 @@ import os
 import time
 from typing import List
 
+from app.core.deps import get_current_user
+from app.core.models import User
 from app.core.state import nuban_db, NubanState
+from app.services.audit import log_audit
 from app.services.cleaner import load_tabular_rows, find_header_row_and_headers_from_rows
 from app.services.nuban import get_bank_list, process_nuban_resolution
 
@@ -24,7 +27,11 @@ async def get_nuban_view(request: Request):
     )
 
 @router.post("/api/nuban/upload", response_class=HTMLResponse)
-async def nuban_upload(request: Request, file: List[UploadFile] = File(...)):
+async def nuban_upload(
+    request: Request,
+    file: List[UploadFile] = File(...),
+    current_user: User = Depends(get_current_user),
+):
     os.makedirs("uploads", exist_ok=True)
     
     files_to_process = file if isinstance(file, list) else [file]
@@ -81,6 +88,13 @@ async def nuban_upload(request: Request, file: List[UploadFile] = File(...)):
 
         nuban_db[state.id] = state
         processed_states.append(state)
+        log_audit(
+            "nuban_upload",
+            user=current_user,
+            filename=state.original_filename,
+            status=state.status,
+            request=request,
+        )
 
     return templates.TemplateResponse(
         request=request,
@@ -140,7 +154,11 @@ async def save_nuban_config(request: Request, file_id: str):
     )
 
 @router.post("/api/nuban/resolve/{file_id}", response_class=HTMLResponse)
-async def resolve_nuban_action(request: Request, file_id: str):
+async def resolve_nuban_action(
+    request: Request,
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+):
     state = nuban_db.get(file_id)
     if not state:
         return "File not found"
@@ -152,15 +170,34 @@ async def resolve_nuban_action(request: Request, file_id: str):
         state.status = "Resolved"
     except Exception as e:
         state.status = f"Failed ({str(e)})"
-        
+
+    log_audit(
+        "nuban_resolve",
+        user=current_user,
+        filename=state.original_filename,
+        status=state.status,
+        request=request,
+    )
     return templates.TemplateResponse(
         request=request,
         name="partials/nuban_file_card.html",
         context={"request": request, "file": state},
     )
 
+
 @router.delete("/api/nuban/delete/{file_id}")
-async def delete_nuban_file(file_id: str):
-    if file_id in nuban_db:
+async def delete_nuban_file(
+    request: Request,
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    state = nuban_db.get(file_id)
+    if state is not None:
         del nuban_db[file_id]
+        log_audit(
+            "nuban_delete",
+            user=current_user,
+            filename=state.original_filename,
+            request=request,
+        )
     return Response(status_code=204)

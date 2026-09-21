@@ -3,12 +3,15 @@ import os
 import time
 from typing import List
 
-from fastapi import APIRouter, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 
+from app.core.deps import get_current_user
+from app.core.models import User
 from app.core.state import AnalysisState, analysis_db
 from app.services.analyser import process_analytics, process_cumulative_transactions
+from app.services.audit import log_audit
 from app.services.cleaner import (
     find_header_row_and_headers_from_rows,
     load_tabular_rows,
@@ -30,7 +33,11 @@ async def get_analyse_view(request: Request):
 
 
 @router.post("/api/analyse/upload", response_class=HTMLResponse)
-async def analyse_upload(request: Request, file: List[UploadFile] = File(...)):
+async def analyse_upload(
+    request: Request,
+    file: List[UploadFile] = File(...),
+    current_user: User = Depends(get_current_user),
+):
     os.makedirs("uploads", exist_ok=True)
 
     files_to_process = file if isinstance(file, list) else [file]
@@ -96,6 +103,13 @@ async def analyse_upload(request: Request, file: List[UploadFile] = File(...)):
 
         analysis_db[state.id] = state
         processed_states.append(state)
+        log_audit(
+            "analyse_upload",
+            user=current_user,
+            filename=state.original_filename,
+            status=state.status,
+            request=request,
+        )
 
     return templates.TemplateResponse(
         request=request,
@@ -234,7 +248,11 @@ async def get_config_form(request: Request, file_id: str):
 
 
 @router.post("/api/analyse/generate/{file_id}", response_class=HTMLResponse)
-async def analyse_generate(request: Request, file_id: str):
+async def analyse_generate(
+    request: Request,
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+):
     state = analysis_db.get(file_id)
     if not state:
         return "File not found"
@@ -250,6 +268,13 @@ async def analyse_generate(request: Request, file_id: str):
     except Exception as e:
         state.status = f"Failed ({str(e)})"
 
+    log_audit(
+        "analyse_generate",
+        user=current_user,
+        filename=state.original_filename,
+        status=state.status,
+        request=request,
+    )
     return templates.TemplateResponse(
         request=request,
         name="partials/analyse_file_card.html",
@@ -258,9 +283,20 @@ async def analyse_generate(request: Request, file_id: str):
 
 
 @router.delete("/api/analyse/delete/{file_id}")
-async def delete_analyse_file(file_id: str):
-    if file_id in analysis_db:
+async def delete_analyse_file(
+    request: Request,
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    state = analysis_db.get(file_id)
+    if state is not None:
         del analysis_db[file_id]
+        log_audit(
+            "analyse_delete",
+            user=current_user,
+            filename=state.original_filename,
+            request=request,
+        )
     return Response(status_code=204)
 
 
