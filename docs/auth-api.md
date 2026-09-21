@@ -4,6 +4,11 @@
 > approval, mandatory TOTP two-factor authentication, and the Starlette Admin
 > dashboard.
 
+> Public account pages are served at `/auth` (and `/auth/setup`, `/auth/verify`,
+> `/auth/mfa`, `/auth/pending`); see [Account pages](auth-pages.md). The browser
+> flow is being updated for mandatory 2FA — login now returns an MFA challenge
+> rather than tokens, and the app is Bearer-only (no auth cookie).
+
 ## Overview
 
 | Area | Mechanism | Auth |

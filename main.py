@@ -3,10 +3,13 @@ import secrets
 
 from fastapi import Depends, FastAPI
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse, RedirectResponse
+from urllib.parse import urlsplit
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.admin.setup import setup_admin
 from app.api.auth import router as auth_router
+from app.api.pages import router as pages_router
 from app.api.routes import router as main_router
 from app.api.analytics import router as analytics_router
 from app.api.nuban import router as nuban_router
@@ -64,6 +67,24 @@ if settings.secret_key == "change-me-in-production" or len(settings.secret_key) 
 
 app = FastAPI(title="AKIRS Batch File Cleaner")
 
+
+@app.middleware("http")
+async def browser_auth(request, call_next):
+    # Reject cross-origin writes. Auth is Bearer-only (no auth cookie); the
+    # middleware only shapes browser navigation and HTMX 401 responses.
+    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        origin = request.headers.get("origin")
+        if (origin and urlsplit(origin).netloc != request.url.netloc) or request.headers.get("sec-fetch-site") == "cross-site":
+            return JSONResponse({"detail": "Cross-origin requests are not allowed"}, status_code=403)
+    response = await call_next(request)
+    if response.status_code == 401 and request.url.path == "/" and "text/html" in request.headers.get("accept", ""):
+        response = RedirectResponse("/auth", status_code=303)
+    elif response.status_code == 401 and request.headers.get("hx-request") == "true":
+        response.headers["HX-Redirect"] = "/auth"
+    if request.url.path == "/" or request.url.path.startswith(("/auth", "/api/auth")):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
 # Starlette Admin uses a session cookie scoped to the admin UI only. The rest of
 # the application authenticates statelessly via JWT Bearer tokens.
 app.add_middleware(
@@ -80,6 +101,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Public authentication endpoints
 app.include_router(auth_router)
+app.include_router(pages_router)
 
 # Protected application routers
 protected = [Depends(get_current_user)]
