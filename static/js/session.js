@@ -14,23 +14,26 @@
         auth.logout();
     });
 
-    // Superusers get quick links to the Starlette Admin dashboard (separate login).
-    async function revealAdminLinks() {
+    // Use the authenticated profile for the greeting and admin shortcut.
+    async function loadAccountProfile() {
         try {
             const response = await auth.apiFetch('/api/auth/me');
             if (!response.ok) return;
             const me = await response.json();
-            if (me.is_superuser) {
-                const links = document.getElementById('admin-links');
-                if (links) links.style.display = 'flex';
-            }
+            const username = typeof me.username === 'string' ? me.username.trim() : '';
+            const firstName = typeof me.full_name === 'string' ? me.full_name.trim().split(/\s+/)[0] : '';
+            const name = username || firstName;
+            const welcome = document.getElementById('welcome-message');
+            if (welcome) welcome.textContent = name ? `Welcome, ${name}` : 'Welcome';
+            const adminLink = document.getElementById('admin-link');
+            if (adminLink) adminLink.hidden = !me.is_superuser;
         } catch (error) {
-            /* non-superusers and offline users simply keep the links hidden */
+            /* Keep a neutral greeting and hide the admin shortcut if the profile cannot load. */
         }
     }
 
     function loadInitialView() {
-        revealAdminLinks();
+        loadAccountProfile();
         if (window.htmx) window.htmx.ajax('GET', '/api/view/process', { target: '#main-content' });
     }
     if (document.readyState === 'loading') {

@@ -11,7 +11,7 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/style.css?v=1.0.2">
+    <link rel="stylesheet" href="/static/css/style.css?v=1.0.4">
     <link rel="icon" type="image/png" href="/static/akirs.png">
 </head>
 
@@ -26,11 +26,23 @@
             </div>
             <p class="akirs-sub">Akwa Ibom State Internal Revenue Service administrative platform for intelligent
                 data manipulation and audit</p>
-            <button type="button" id="logout-button" style="position:relative;z-index:1;margin-top:1rem;padding:.5rem 1rem;background:white;color:var(--primary);border:0;border-radius:.5rem;cursor:pointer">Log out of all devices</button>
-            <div id="admin-links" style="display:none;position:relative;z-index:1;margin-top:.75rem;gap:.5rem;justify-content:center;flex-wrap:wrap">
-                <a href="/admin" target="_blank" rel="noopener" style="padding:.4rem .8rem;background:rgba(255,255,255,.15);color:white;border:1px solid rgba(255,255,255,.4);border-radius:.5rem;text-decoration:none;font-size:.85rem">Admin dashboard</a>
-                <a href="/admin/user/list" target="_blank" rel="noopener" style="padding:.4rem .8rem;background:rgba(255,255,255,.15);color:white;border:1px solid rgba(255,255,255,.4);border-radius:.5rem;text-decoration:none;font-size:.85rem">Users</a>
-                <a href="/admin/audit-log/list" target="_blank" rel="noopener" style="padding:.4rem .8rem;background:rgba(255,255,255,.15);color:white;border:1px solid rgba(255,255,255,.4);border-radius:.5rem;text-decoration:none;font-size:.85rem">Audit log</a>
+            <div class="header-account">
+                <div class="header-welcome">
+                    <p id="welcome-message" aria-live="polite">Welcome</p>
+                    <a id="admin-link" class="header-icon header-admin" href="/admin" target="_blank" rel="noopener" aria-label="Open admin dashboard" title="Admin dashboard" hidden>
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                            <circle cx="12" cy="9" r="2"/>
+                            <path d="M8.5 16a3.5 3.5 0 0 1 7 0"/>
+                        </svg>
+                    </a>
+                </div>
+                <button type="button" id="logout-button" class="header-icon header-logout" aria-label="Log out of all devices" title="Log out of all devices">
+                    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                        <path d="m16 17 5-5-5-5M21 12H9"/>
+                    </svg>
+                </button>
             </div>
         </header>
 
@@ -95,7 +107,7 @@
 
     <script src="/static/js/auth-core.js"></script>
     <script src="/static/js/app.js"></script>
-    <script src="/static/js/session.js"></script>
+    <script src="/static/js/session.js?v=2"></script>
 </body>
 
 </html>
