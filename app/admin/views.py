@@ -2,18 +2,22 @@ from typing import Any, Dict
 
 from starlette.requests import Request
 from starlette_admin import (
+    ActionSelection,
     BooleanField,
     DateTimeField,
     IntegerField,
     PasswordField,
     StringField,
     TextAreaField,
+    action,
+    flash,
 )
 from starlette_admin.contrib.sqla import ModelView
 from starlette_admin.exceptions import FormValidationError
 
-from app.core.models import AuditLog, User
+from app.core.models import AuditLog, RecoveryCode, User
 from app.core.security import hash_password
+from app.services.audit import log_audit
 
 
 class UserView(ModelView):
@@ -29,8 +33,19 @@ class UserView(ModelView):
             exclude_from_detail=True,
             help_text="Leave blank when editing to keep the current password.",
         ),
+        BooleanField(
+            "is_approved",
+            label="Approved",
+            help_text="Signups must be approved before they can sign in.",
+        ),
         BooleanField("is_active"),
         BooleanField("is_superuser", label="Superuser"),
+        BooleanField(
+            "totp_enabled",
+            label="2FA enabled",
+            read_only=True,
+            help_text="Whether the user has completed TOTP two-factor setup.",
+        ),
         IntegerField(
             "token_version",
             help_text="Increment to immediately revoke all tokens issued to this user.",
@@ -49,8 +64,9 @@ class UserView(ModelView):
         ),
     ]
     searchable_fields = ["email", "full_name"]
-    fields_default_sort = [("created_at", True)]
+    fields_default_sort = [("is_approved", False), ("created_at", True)]
     page_size = 25
+    actions = ["approve", "reject", "reset_2fa", "delete"]
 
     async def before_create(
         self, request: Request, data: Dict[str, Any], obj: Any
@@ -72,6 +88,98 @@ class UserView(ModelView):
         if password:
             obj.hashed_password = hash_password(password)
 
+    def _actor(self, request: Request) -> User | None:
+        session = request.state.session
+        admin_id = request.session.get("admin_user_id")
+        if admin_id is None:
+            return None
+        return session.get(User, admin_id)
+
+    @action(
+        name="approve",
+        text="Approve selected",
+        confirmation="Approve the selected user accounts?",
+        submit_btn_text="Yes, approve",
+        icon_class="fa-solid fa-check",
+    )
+    async def approve(self, request: Request, selection: ActionSelection) -> None:
+        session = request.state.session
+        users = await selection.rows()
+        actor = self._actor(request)
+        for user in users:
+            user.is_approved = True
+            user.is_active = True
+        session.commit()
+        for user in users:
+            log_audit(
+                "user_approved",
+                user=actor,
+                status="success",
+                detail=f"target={user.email}",
+                request=request,
+            )
+        flash(request, f"Approved {len(users)} account(s).", "success")
+
+    @action(
+        name="reject",
+        text="Reject / disable selected",
+        confirmation="Disable the selected accounts?",
+        submit_btn_text="Yes, disable",
+        icon_class="fa-solid fa-ban",
+    )
+    async def reject(self, request: Request, selection: ActionSelection) -> None:
+        session = request.state.session
+        users = await selection.rows()
+        actor = self._actor(request)
+        for user in users:
+            user.is_approved = False
+            user.is_active = False
+            user.token_version += 1
+        session.commit()
+        for user in users:
+            log_audit(
+                "user_rejected",
+                user=actor,
+                status="success",
+                detail=f"target={user.email}",
+                request=request,
+            )
+        flash(request, f"Disabled {len(users)} account(s).", "success")
+
+    @action(
+        name="reset_2fa",
+        text="Reset 2FA",
+        confirmation="Reset two-factor authentication for the selected users?",
+        submit_btn_text="Yes, reset",
+        icon_class="fa-solid fa-key",
+    )
+    async def reset_2fa(self, request: Request, selection: ActionSelection) -> None:
+        session = request.state.session
+        users = await selection.rows()
+        actor = self._actor(request)
+        for user in users:
+            user.totp_enabled = False
+            user.totp_secret = None
+            user.pending_totp_secret = None
+            user.token_version += 1
+            session.query(RecoveryCode).filter(
+                RecoveryCode.user_id == user.id
+            ).delete()
+        session.commit()
+        for user in users:
+            log_audit(
+                "user_2fa_reset",
+                user=actor,
+                status="success",
+                detail=f"target={user.email}",
+                request=request,
+            )
+        flash(
+            request,
+            f"Reset 2FA for {len(users)} account(s). They must set it up again.",
+            "success",
+        )
+
 
 class AuditLogView(ModelView):
     fields = [
@@ -87,6 +195,12 @@ class AuditLogView(ModelView):
     searchable_fields = ["user_email", "action", "filename", "detail"]
     fields_default_sort = [("created_at", True)]
     page_size = 50
-    can_create = False
-    can_edit = False
-    can_delete = False
+
+    def can_create(self, request: Request) -> bool:
+        return False
+
+    def can_edit(self, request: Request) -> bool:
+        return False
+
+    def can_delete(self, request: Request) -> bool:
+        return False

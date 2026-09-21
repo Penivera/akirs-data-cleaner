@@ -1,6 +1,6 @@
 import os
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.core.config import settings
@@ -49,8 +49,38 @@ class Base(DeclarativeBase):
     pass
 
 
+def _ensure_user_columns() -> None:
+    """Best-effort additive migration for databases created before a column existed."""
+    inspector = inspect(engine)
+    if "users" not in inspector.get_table_names():
+        return
+
+    existing = {column["name"] for column in inspector.get_columns("users")}
+    statements = []
+    if "is_approved" not in existing:
+        statements.append(
+            "ALTER TABLE users ADD COLUMN is_approved BOOLEAN DEFAULT TRUE NOT NULL"
+        )
+    if "totp_secret" not in existing:
+        statements.append("ALTER TABLE users ADD COLUMN totp_secret VARCHAR(64)")
+    if "pending_totp_secret" not in existing:
+        statements.append(
+            "ALTER TABLE users ADD COLUMN pending_totp_secret VARCHAR(64)"
+        )
+    if "totp_enabled" not in existing:
+        statements.append(
+            "ALTER TABLE users ADD COLUMN totp_enabled BOOLEAN DEFAULT FALSE NOT NULL"
+        )
+
+    if statements:
+        with engine.begin() as conn:
+            for statement in statements:
+                conn.execute(text(statement))
+
+
 def init_db() -> None:
     """Create all tables that do not yet exist."""
     from app.core import models  # noqa: F401  (register models on Base)
 
     Base.metadata.create_all(bind=engine)
+    _ensure_user_columns()

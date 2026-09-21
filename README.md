@@ -64,11 +64,17 @@ The application is protected by JWT authentication and ships with a
 
 ### How it works
 
+- **Signup**: `POST /api/auth/signup` creates an account that must be approved by an
+  administrator before it can sign in.
 - **App API/UI**: stateless JWT sent in the `Authorization: Bearer <token>` header.
   Access tokens expire after `ACCESS_TOKEN_EXPIRE_MINUTES` (default 30); refresh
   tokens after `REFRESH_TOKEN_EXPIRE_DAYS` (default 7). No cookies are used.
+- **Two-factor authentication (mandatory)**: after approval, the first login forces
+  TOTP setup with an authenticator app; later logins require a TOTP code (or a
+  one-time recovery code). Tokens are only issued after the second factor passes.
 - **Admin (`/admin`)**: Starlette Admin uses its own session cookie and is
-  restricted to users with `is_superuser = True`.
+  restricted to users with `is_superuser = True`. Admins approve/reject signups,
+  reset 2FA, and review the audit log of actions by all users.
 - **Storage**: SQLAlchemy. SQLite (`data/app.db`) by default; set `DATABASE_URL`
   to a PostgreSQL URL to switch.
 
@@ -76,7 +82,11 @@ The application is protected by JWT authentication and ships with a
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/api/auth/login` | `{ "email", "password" }` → access + refresh tokens |
+| `POST` | `/api/auth/signup` | `{ "email", "password", "full_name" }` → pending approval |
+| `POST` | `/api/auth/login` | `{ "email", "password" }` → MFA challenge |
+| `POST` | `/api/auth/2fa/setup` | `{ "challenge_token" }` → TOTP secret + otpauth URI |
+| `POST` | `/api/auth/2fa/enable` | `{ "challenge_token", "code" }` → tokens + recovery codes |
+| `POST` | `/api/auth/2fa/verify` | `{ "challenge_token", "code"\|"recovery_code" }` → tokens |
 | `POST` | `/api/auth/refresh` | `{ "refresh_token" }` → rotated token pair |
 | `POST` | `/api/auth/logout` | `{ "refresh_token", "all_devices" }` → revoke tokens |
 | `GET`  | `/api/auth/me` | Current user profile (Bearer required) |
@@ -85,8 +95,8 @@ The application is protected by JWT authentication and ships with a
 
 A superuser is seeded on first startup from `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
 If `ADMIN_PASSWORD` is unset, a random password is generated and logged once.
-Create and manage further accounts from the `/admin` dashboard, where every
-upload, download, processing and sync action is also recorded in the audit log.
+Approve or reject signups, reset a user's 2FA, and review every upload, download,
+processing, sync, and authentication event in the `/admin` audit log.
 
 ### Required environment variables
 

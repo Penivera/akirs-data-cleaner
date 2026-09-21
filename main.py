@@ -34,6 +34,7 @@ def seed_superuser() -> None:
             full_name="Administrator",
             hashed_password=hash_password(password),
             is_active=True,
+            is_approved=True,
             is_superuser=True,
         )
         db.add(user)

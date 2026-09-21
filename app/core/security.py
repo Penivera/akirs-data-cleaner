@@ -11,6 +11,8 @@ from app.core.config import settings
 ALGORITHM = "HS256"
 ACCESS_TOKEN_TYPE = "access"
 REFRESH_TOKEN_TYPE = "refresh"
+MFA_CHALLENGE_TYPE = "mfa"
+MFA_SETUP_TYPE = "mfa_setup"
 
 
 def hash_password(password: str) -> str:
@@ -66,6 +68,17 @@ def create_refresh_token(user_id: int, token_version: int = 0) -> str:
 def decode_token(token: str) -> Dict[str, Any]:
     """Decode and validate a JWT. Raises jwt.PyJWTError on failure."""
     return jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
+
+
+def create_mfa_challenge_token(
+    user_id: int, setup_required: bool, token_version: int = 0
+) -> str:
+    return _create_token(
+        user_id,
+        MFA_SETUP_TYPE if setup_required else MFA_CHALLENGE_TYPE,
+        timedelta(minutes=settings.mfa_challenge_expire_minutes),
+        {"ver": token_version},
+    )
 
 
 def hash_token(token: str) -> str:

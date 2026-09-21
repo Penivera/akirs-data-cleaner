@@ -6,6 +6,40 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased] - 2026-09-21
 
 ### Added
+- **Self-service signup** (`POST /api/auth/signup`): collects email, password, and
+  full name. New accounts are created with `is_approved = False` and cannot sign in
+  until an administrator approves them.
+- **Admin approval workflow**: the Starlette Admin Users view gains bulk
+  **Approve**, **Reject / disable**, and **Reset 2FA** actions plus an
+  `is_approved` filter. Approve/Reject/Reset are themselves written to the audit
+  log with the acting administrator recorded.
+- **Mandatory TOTP two-factor authentication** (`app/core/mfa.py`):
+  - `POST /api/auth/2fa/setup` — returns a secret and `otpauth://` provisioning URI.
+  - `POST /api/auth/2fa/enable` — verifies a code and issues 10 one-time recovery codes.
+  - `POST /api/auth/2fa/verify` — completes login with a TOTP code or a recovery code.
+  - Recovery codes are stored hashed and consumed once.
+  - All logins now return an MFA challenge instead of tokens; tokens are only issued
+    after the second factor is satisfied. Users without 2FA are forced to set it up
+    on first login.
+- **New models/fields**: `User.is_approved`, `User.totp_secret`,
+  `User.pending_totp_secret`, `User.totp_enabled`, and the `RecoveryCode` table.
+- **Additive migration** (`app/core/database.py`): `init_db()` adds the new user
+  columns to databases created before this change.
+- **`tzdata` dependency** so Starlette Admin datetime rendering works on Windows.
+- New config: `TOTP_ISSUER`, `MFA_CHALLENGE_EXPIRE_MINUTES`, `RECOVERY_CODE_COUNT`.
+
+### Changed
+- `POST /api/auth/login` now returns `MfaChallengeResponse`
+  (`mfa_required` / `setup_required` / `challenge_token`) and no longer returns
+  tokens directly. A 403 is returned for pending (`Account pending administrator
+  approval`) or disabled accounts.
+- `UserOut` now includes `is_approved` and `totp_enabled`.
+- Superuser seeded by the bootstrap is created with `is_approved = True`.
+- `requirements.txt` adds `pyotp==2.10.0` and `tzdata==2026.4`.
+
+## [0.2.0] - 2026-09-21
+
+### Added
 - **Database layer** (`app/core/database.py`): SQLAlchemy 2.0 engine, `SessionLocal`,
   declarative `Base`, and `init_db()`. Defaults to SQLite at `data/app.db`; switchable
   to PostgreSQL via `DATABASE_URL`.
@@ -53,7 +87,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Startup logs a warning when `SECRET_KEY` is missing, default, or under 32 bytes.
 
 ### Not included (pending)
-- **Frontend integration.** The login page, token storage, HTMX `Authorization`
-  header injection, 401/refresh handling, and authenticated downloads are not yet
-  implemented. See `docs/frontend-integration.md`. Until then, browser navigation
-  to `/` returns `401`.
+- **Frontend integration.** The login page, signup page, 2FA setup/verify screens,
+  token storage, HTMX `Authorization` header injection, 401/refresh handling, and
+  authenticated downloads are not yet implemented. See
+  `docs/frontend-integration.md`. Until then, browser navigation to `/` returns `401`.

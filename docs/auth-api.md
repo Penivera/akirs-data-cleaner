@@ -1,37 +1,60 @@
 # Authentication & Admin API Reference
 
-> Added 2026-09-21. Covers JWT authentication and the Starlette Admin dashboard.
+> Updated 2026-09-21. Covers JWT authentication, self-service signup, admin
+> approval, mandatory TOTP two-factor authentication, and the Starlette Admin
+> dashboard.
 
 ## Overview
 
 | Area | Mechanism | Auth |
 |------|-----------|------|
 | Application API/UI | Stateless JWT in `Authorization: Bearer <token>` | `get_current_user` dependency |
+| Signup | `POST /api/auth/signup` → pending admin approval | none |
+| Login | Password → MFA challenge → TOTP/recovery code → tokens | none until tokens issued |
 | Admin UI (`/admin`) | Session cookie (starlette-admin), superusers only | `AdminAuthProvider` |
 | Storage | SQLAlchemy — SQLite (`data/app.db`) by default | — |
 
-**Public paths** (no token required): `/api/auth/login`, `/api/auth/refresh`,
-`/static/*`, `/docs`, `/redoc`, `/openapi.json`, `/admin/*` (has its own login).
+**Public paths** (no token required): `/api/auth/signup`, `/api/auth/login`,
+`/api/auth/2fa/setup`, `/api/auth/2fa/enable`, `/api/auth/2fa/verify`,
+`/api/auth/refresh`, `/static/*`, `/docs`, `/redoc`, `/openapi.json`,
+`/admin/*` (has its own login).
 
 **Everything else requires** a valid access token. A missing, malformed,
 expired, revoked, or version-mismatched token returns `401`.
+
+### Account lifecycle
+
+```
+signup ──▶ pending approval ──▶ (admin approves) ──▶ active
+                                                      │
+                                    login (password) ─┤
+                                                      ▼
+                              MFA setup (first login) ──▶ enable ──▶ tokens
+                                                      │
+                              later logins: TOTP code or recovery code ──▶ tokens
+```
+
+- New accounts are created `is_approved = false` and cannot log in.
+- An administrator approves/rejects them from `/admin` (or via the actions API).
+- 2FA is **mandatory**: after approval, the first login forces TOTP setup;
+  subsequent logins require a TOTP (or one-time recovery) code.
 
 ---
 
 ## Token model
 
 - **Access token** — JWT, default lifetime 30 min (`ACCESS_TOKEN_EXPIRE_MINUTES`).
-  Claims: `sub` (user id), `type="access"`, `jti`, `ver` (user `token_version`),
-  `iat`, `exp`.
+  Claims: `sub`, `type="access"`, `jti`, `ver`, `iat`, `exp`.
 - **Refresh token** — JWT, default lifetime 7 days (`REFRESH_TOKEN_EXPIRE_DAYS`).
-  Claims: `sub`, `type="refresh"`, `jti`, `ver`, `iat`, `exp`. Persisted hashed
-  in `refresh_tokens` for rotation/revocation.
-- Refresh is **rotating**: each successful refresh revokes the old refresh token
-  and issues a new access + refresh pair. Reusing a spent token returns `401`.
-- Bumping a user's `token_version` (via logout-all or admin) invalidates every
-  access and refresh token previously issued to that user.
+  Persisted hashed in `refresh_tokens`; rotating.
+- **MFA challenge token** — short-lived JWT (default 10 min,
+  `MFA_CHALLENGE_EXPIRE_MINUTES`) with `type="mfa"` (verify) or
+  `type="mfa_setup"` (setup). Issued by login; exchanged for tokens.
 
-Send the token on every protected request:
+Bumping a user's `token_version` (logout-all, reject, reset-2FA) invalidates every
+access, refresh, and challenge token previously issued.
+
+Send the access token on protected requests:
 
 ```
 Authorization: Bearer <access_token>
@@ -45,15 +68,30 @@ Authorization: Bearer <access_token>
 
 ```json
 {
-  "id": 1,
-  "email": "admin@akirs.local",
-  "full_name": "Administrator",
+  "id": 2,
+  "email": "user1@akirs.local",
+  "full_name": "User One",
   "is_active": true,
-  "is_superuser": true,
+  "is_approved": true,
+  "is_superuser": false,
+  "totp_enabled": true,
   "created_at": "2026-09-21T10:00:00Z",
   "last_login": "2026-09-21T12:30:00Z"
 }
 ```
+
+### `MfaChallengeResponse` (login result)
+
+```json
+{
+  "mfa_required": false,
+  "setup_required": true,
+  "challenge_token": "eyJhbGciOiJIUzI1NiIs..."
+}
+```
+
+- `setup_required: true` — user has not configured 2FA yet; call `/2fa/setup`.
+- `mfa_required: true` — user has 2FA; call `/2fa/verify`.
 
 ### `TokenResponse`
 
@@ -67,124 +105,190 @@ Authorization: Bearer <access_token>
 }
 ```
 
-`expires_in` is the access-token lifetime in seconds.
+`MfaTokenResponse` is the same plus `recovery_codes` (only populated by
+`/2fa/enable`).
 
 ---
 
 ## Endpoints
 
-### `POST /api/auth/login`
+### `POST /api/auth/signup`
 
-Authenticate with email and password.
+Create an account pending administrator approval.
 
 **Auth:** none
 
 **Request body**
 
 ```json
-{ "email": "admin@akirs.local", "password": "your-password" }
+{ "email": "user@akirs.local", "password": "at-least-8-chars", "full_name": "Jane Doe" }
+```
+
+**Responses**
+
+| Status | Meaning |
+|--------|---------|
+| `201` | `{ "detail": "...pending approval...", "user_id": 2 }` |
+| `409` | Email already registered |
+| `422` | Validation error (invalid email, password < 8 chars) |
+
+---
+
+### `POST /api/auth/login`
+
+Verify credentials and return an MFA challenge. **Never returns tokens directly.**
+
+**Auth:** none
+
+**Request body**
+
+```json
+{ "email": "user@akirs.local", "password": "..." }
 ```
 
 **Responses**
 
 | Status | Meaning | Body |
 |--------|---------|------|
-| `200` | Success | `TokenResponse` |
+| `200` | Challenge issued | `MfaChallengeResponse` |
 | `401` | Invalid email or password | `{ "detail": "Invalid email or password" }` |
 | `403` | Account disabled | `{ "detail": "Account is disabled" }` |
-| `422` | Validation error (missing/blank/invalid email) | FastAPI validation detail |
+| `403` | Not yet approved | `{ "detail": "Account pending administrator approval" }` |
 
-**Notes:** email is trimmed and lower-cased before lookup. A successful login
-updates `last_login` and writes a `login` audit entry.
+---
+
+### `POST /api/auth/2fa/setup`
+
+Start TOTP setup for a user in the `mfa_setup` challenge state.
+
+**Auth:** none (requires `challenge_token` from login)
+
+**Request body**
+
+```json
+{ "challenge_token": "eyJhbGciOiJIUzI1NiIs..." }
+```
+
+**Response `200`**
+
+```json
+{
+  "secret": "JBSWY3DPEHPK3PXP",
+  "otpauth_url": "otpauth://totp/AKIRS%20Data%20Toolkit:user@akirs.local?secret=...&issuer=AKIRS%20Data%20Toolkit"
+}
+```
+
+The frontend renders `otpauth_url` as a QR code (or shows `secret` for manual
+entry). The secret is stored server-side as `pending_totp_secret` until enabled.
+
+---
+
+### `POST /api/auth/2fa/enable`
+
+Confirm setup with a code, enable 2FA, and receive tokens plus recovery codes.
+
+**Auth:** none (requires `challenge_token` from login)
+
+**Request body**
+
+```json
+{ "challenge_token": "eyJhbGciOiJIUzI1NiIs...", "code": "123456" }
+```
+
+**Responses**
+
+| Status | Meaning |
+|--------|---------|
+| `200` | `MfaTokenResponse` with `recovery_codes` (10 codes, shown once) |
+| `400` | Invalid verification code, or setup not started |
+
+Store the recovery codes securely; they are hashed server-side and cannot be
+retrieved again.
+
+---
+
+### `POST /api/auth/2fa/verify`
+
+Complete login with a TOTP code or a one-time recovery code.
+
+**Auth:** none (requires `challenge_token` from login)
+
+**Request body**
+
+```json
+{ "challenge_token": "eyJhbGciOiJIUzI1NiIs...", "code": "123456" }
+```
+
+or
+
+```json
+{ "challenge_token": "eyJhbGciOiJIUzI1NiIs...", "recovery_code": "a1b2c-3d4e5" }
+```
+
+**Responses**
+
+| Status | Meaning |
+|--------|---------|
+| `200` | `MfaTokenResponse` (no recovery codes) |
+| `400` | Invalid code / recovery code already used / 2FA not configured |
+| `401` | Invalid or expired challenge token |
+
+Recovery codes are single-use; reusing one returns `400`.
 
 ---
 
 ### `POST /api/auth/refresh`
 
-Exchange a refresh token for a new token pair.
+Exchange a refresh token for a new token pair. (Unchanged.)
 
-**Auth:** none (the refresh token itself is the credential)
+**Auth:** none
 
-**Request body**
-
-```json
-{ "refresh_token": "eyJhbGciOiJIUzI1NiIs..." }
-```
-
-**Responses**
+**Request body:** `{ "refresh_token": "..." }`
 
 | Status | Meaning |
 |--------|---------|
-| `200` | New `TokenResponse` (old refresh token is now revoked) |
+| `200` | New `TokenResponse` (old refresh token revoked) |
 | `401` | Invalid / expired / revoked / reused refresh token |
-
-**Notes:** rotation is enforced. Persist the new `refresh_token` and discard the
-old one; the old one will not work again.
 
 ---
 
 ### `POST /api/auth/logout`
 
-Revoke refresh token(s) for the authenticated user.
-
 **Auth:** `Authorization: Bearer <access_token>`
 
-**Request body**
+**Request body:** `{ "refresh_token": "...", "all_devices": false }`
 
-```json
-{ "refresh_token": "optional-current-refresh-token", "all_devices": false }
-```
-
-- `refresh_token` — if provided, that specific token is revoked.
-- `all_devices: true` — revokes **all** of the user's refresh tokens and bumps
-  `token_version`, invalidating every outstanding access token too.
-
-**Responses**
-
-| Status | Meaning |
-|--------|---------|
-| `204` | Revoked (no body) |
-| `401` | Missing/invalid access token |
+`all_devices: true` revokes all refresh tokens and bumps `token_version`.
+Returns `204`.
 
 ---
 
 ### `GET /api/auth/me`
 
-Return the current user profile.
-
-**Auth:** `Authorization: Bearer <access_token>`
-
-**Responses**
-
-| Status | Meaning | Body |
-|--------|---------|------|
-| `200` | Current user | `UserOut` |
-| `401` | Missing/invalid token | `{ "detail": "Could not validate credentials" }` |
+**Auth:** `Authorization: Bearer <access_token>` → `UserOut`.
 
 ---
 
 ## Admin dashboard
 
-**Base URL:** `/admin`
-**Auth:** starlette-admin session cookie; only users with
-`is_superuser = true` and `is_active = true` can sign in.
+**Base URL:** `/admin` · **Auth:** session cookie, active superusers only.
 
-- Login form at `/admin/login`.
-- **Users** view — create/edit/deactivate accounts. The password field is hashed
-  automatically; leave it blank when editing to keep the current password.
-  Increment `token_version` to force-revoke all of a user's tokens.
-- **Audit log** view — read-only, searchable history of uploads, processing,
-  downloads, syncs, deletes, logins, and logouts.
-
-The session cookie (`akirs_admin_session`) is issued only when using `/admin`.
-The application itself never reads it.
+- **Users** view — create/edit/deactivate accounts; `is_approved` toggle; filters
+  (including `is_approved`, `is_superuser`, `totp_enabled`). Bulk actions:
+  - **Approve selected** — sets `is_approved = true`, `is_active = true`.
+  - **Reject / disable selected** — sets both false and bumps `token_version`.
+  - **Reset 2FA** — clears the TOTP secret and recovery codes and bumps
+    `token_version`, forcing the user to set up 2FA again.
+- **Audit log** view — read-only, searchable/filterable history of actions by
+  **all users**, including `signup`, `login`, `2fa_*`, uploads, processing,
+  downloads, syncs, deletes, and admin actions (`user_approved`, `user_rejected`,
+  `user_2fa_reset`). Each row shows the acting `user_email`.
 
 ---
 
 ## Protected application endpoints
 
-All of the following now require `Authorization: Bearer <access_token>`.
-See `docs/system-design.md` for behavior; this list is the auth-relevant surface.
+All of the following require `Authorization: Bearer <access_token>`.
 
 | Router | Endpoints |
 |--------|-----------|
@@ -207,6 +311,9 @@ See `docs/system-design.md` for behavior; this list is the auth-relevant surface
 | `REFRESH_TOKEN_EXPIRE_DAYS` | `7` | Refresh token lifetime. |
 | `ADMIN_SESSION_MAX_AGE` | `1209600` | Admin cookie lifetime (seconds). |
 | `ADMIN_SESSION_HTTPS_ONLY` | `false` | Mark admin cookie HTTPS-only. |
+| `TOTP_ISSUER` | `AKIRS Data Toolkit` | Issuer shown in authenticator apps. |
+| `MFA_CHALLENGE_EXPIRE_MINUTES` | `10` | MFA challenge token lifetime. |
+| `RECOVERY_CODE_COUNT` | `10` | Recovery codes issued on 2FA enable. |
 
 The superuser is seeded **only when the users table is empty**. Delete
 `data/app.db` to re-seed after changing `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
@@ -216,23 +323,32 @@ The superuser is seeded **only when the users table is empty**. Delete
 ## Quick reference (curl)
 
 ```bash
-# login
+# signup
+curl -s -X POST http://localhost:8000/api/auth/signup \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@akirs.local","password":"UserPass123!","full_name":"User One"}'
+
+# login -> challenge
 curl -s -X POST http://localhost:8000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@akirs.local","password":"your-password"}'
+  -d '{"email":"user@akirs.local","password":"UserPass123!"}'
+
+# (first login) start 2FA setup
+curl -s -X POST http://localhost:8000/api/auth/2fa/setup \
+  -H "Content-Type: application/json" \
+  -d '{"challenge_token":"<challenge_token>"}'
+
+# (first login) enable 2FA with the code from the authenticator app
+curl -s -X POST http://localhost:8000/api/auth/2fa/enable \
+  -H "Content-Type: application/json" \
+  -d '{"challenge_token":"<challenge_token>","code":"123456"}'
+
+# (later logins) verify
+curl -s -X POST http://localhost:8000/api/auth/2fa/verify \
+  -H "Content-Type: application/json" \
+  -d '{"challenge_token":"<challenge_token>","code":"123456"}'
 
 # authenticated call
 curl -s http://localhost:8000/api/auth/me \
   -H "Authorization: Bearer <access_token>"
-
-# refresh
-curl -s -X POST http://localhost:8000/api/auth/refresh \
-  -H "Content-Type: application/json" \
-  -d '{"refresh_token":"<refresh_token>"}'
-
-# logout (single token)
-curl -s -X POST http://localhost:8000/api/auth/logout \
-  -H "Authorization: Bearer <access_token>" \
-  -H "Content-Type: application/json" \
-  -d '{"refresh_token":"<refresh_token>"}'
 ```

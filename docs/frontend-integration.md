@@ -1,40 +1,39 @@
-# Frontend Integration Guide — JWT Auth (No Cookies)
+# Frontend Integration Guide — JWT Auth, Signup & TOTP 2FA (No Cookies)
 
-> Audience: frontend engineer. Backend auth is implemented; the UI is not.
+> Audience: frontend engineer. The backend is implemented; the UI is not.
 > See `docs/auth-api.md` for the endpoint contract.
 
 ## The one thing to understand first
 
 Auth is **stateless JWT in the `Authorization` header — no cookies.** Browsers do
-**not** attach that header to:
-
-- normal page navigations (clicking a link, typing a URL), or
-- plain `<a href="...">` downloads.
-
-They **do** attach it to `fetch`, `XMLHttpRequest`, and **HTMX** requests
-(via `htmx:configRequest`).
+**not** attach that header to normal page navigations or plain `<a href>` downloads,
+but they **do** attach it to `fetch`/`XHR` and **HTMX** requests (via
+`htmx:configRequest`).
 
 So the UI must:
 
-1. Be reachable through **public** pages that hold no data (login page + app shell).
-2. Load all real content through **HTMX/fetch**, which injects the token.
-3. Convert every authenticated **download link** into a JS `fetch` + blob save.
-4. Handle `401` by refreshing the token and retrying, or sending the user to login.
+1. Have **public** pages that hold no data: login, signup, 2FA screens, and the app shell.
+2. Load all real content through **HTMX/fetch**, which inject the token.
+3. Convert authenticated **download links** into JS `fetch` + blob saves.
+4. Handle `401` by refreshing and retrying, or sending the user to login.
+
+Account lifecycle the UI must support: **signup → pending approval → login →
+mandatory 2FA setup (first time) → 2FA verify (later) → app**.
 
 ---
 
 ## 1. Required backend support (small, coordinate with backend)
 
-Today `/` is protected and returns `401` to a browser navigation. Add two
-**public** routes so the cookie-free flow can start:
+`/` is protected and returns `401` to browser navigation. Add these **public**
+routes so the cookie-free flow can start (register before the protected routers in
+`main.py`, and remove the existing `read_index` from `routes.py`):
 
-| Route | Auth | Renders |
-|-------|------|---------|
-| `GET /login` | public | `templates/login.html` |
-| `GET /` | public | a **shell** (nav + empty `#main-content`, no data) |
-
-Implementation sketch (register before the protected routers in `main.py`, and
-remove the existing `read_index` from `routes.py` so there is no duplicate `/`):
+| Route | Renders |
+|-------|---------|
+| `GET /login` | `templates/login.html` |
+| `GET /signup` | `templates/signup.html` |
+| `GET /mfa` | `templates/mfa.html` (setup + verify, or split into two pages) |
+| `GET /` | a **shell** (nav + empty `#main-content`, no data) |
 
 ```python
 from fastapi import Request
@@ -47,25 +46,33 @@ public_templates = Jinja2Templates(directory="templates")
 async def login_page(request: Request):
     return public_templates.TemplateResponse(request=request, name="login.html")
 
+@app.get("/signup", response_class=HTMLResponse)
+async def signup_page(request: Request):
+    return public_templates.TemplateResponse(request=request, name="signup.html")
+
+@app.get("/mfa", response_class=HTMLResponse)
+async def mfa_page(request: Request):
+    return public_templates.TemplateResponse(request=request, name="mfa.html")
+
 @app.get("/", response_class=HTMLResponse)
 async def shell(request: Request):
     return public_templates.TemplateResponse(request=request, name="shell.html")
 ```
 
-`shell.html` is `index.html` **without** the server-side
-`{% include 'partials/process_view.html' %}`. The guard script (step 4) loads the
-content over HTMX once a token exists. All data endpoints stay protected.
+All data endpoints stay protected.
 
 ---
 
-## 2. Token storage — `static/js/auth.js`
+## 2. Token + challenge storage — `static/js/auth.js`
 
-Store tokens in `localStorage` and expose small helpers. Add this file and load
-it in both `login.html` and `shell.html` **before** `app.js` and after HTMX.
+Tokens in `localStorage`; the transient **challenge token** in `sessionStorage`
+(it is only needed for the 2FA step). Load this file on every public page before
+`app.js`.
 
 ```js
 const ACCESS_KEY = 'akirs_access_token';
 const REFRESH_KEY = 'akirs_refresh_token';
+const CHALLENGE_KEY = 'akirs_mfa_challenge';
 
 const auth = {
   get access() { return localStorage.getItem(ACCESS_KEY); },
@@ -77,14 +84,17 @@ const auth = {
   clear() {
     localStorage.removeItem(ACCESS_KEY);
     localStorage.removeItem(REFRESH_KEY);
+    sessionStorage.removeItem(CHALLENGE_KEY);
   },
   isAuthed() { return Boolean(this.access); },
   headers() {
     return this.access ? { Authorization: `Bearer ${this.access}` } : {};
   },
+  setChallenge(token) { sessionStorage.setItem(CHALLENGE_KEY, token); },
+  get challenge() { return sessionStorage.getItem(CHALLENGE_KEY); },
+  clearChallenge() { sessionStorage.removeItem(CHALLENGE_KEY); },
 };
 
-// Single-flight refresh so parallel 401s don't all hit /refresh.
 let refreshing = null;
 async function refreshTokens() {
   if (!auth.refresh) return false;
@@ -109,49 +119,134 @@ async function refreshTokens() {
 
 ---
 
-## 3. Login page — `templates/login.html`
-
-Reuse the existing AKIRS styling (`/static/css/style.css`). Minimal markup:
+## 3. Signup page — `templates/signup.html`
 
 ```html
-<form id="login-form">
+<form id="signup-form">
+  <input name="full_name" type="text" required>
   <input name="email" type="email" autocomplete="username" required>
-  <input name="password" type="password" autocomplete="current-password" required>
-  <button type="submit">Sign in</button>
-  <p id="login-error" role="alert"></p>
+  <input name="password" type="password" autocomplete="new-password" minlength="8" required>
+  <button type="submit">Create account</button>
+  <p id="signup-msg" role="alert"></p>
 </form>
 <script src="/static/js/auth.js"></script>
 <script>
-  document.getElementById('login-form').addEventListener('submit', async (e) => {
+  document.getElementById('signup-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const form = new FormData(e.target);
-    const res = await fetch('/api/auth/login', {
+    const f = new FormData(e.target);
+    const res = await fetch('/api/auth/signup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: form.get('email'), password: form.get('password') }),
+      body: JSON.stringify({
+        email: f.get('email'),
+        password: f.get('password'),
+        full_name: f.get('full_name'),
+      }),
     });
-    if (res.ok) {
-      const data = await res.json();
-      auth.set(data.access_token, data.refresh_token);
-      const next = new URLSearchParams(location.search).get('next') || '/';
-      window.location.replace(next);
+    const body = await res.json().catch(() => ({}));
+    const msg = document.getElementById('signup-msg');
+    if (res.status === 201) {
+      msg.textContent = 'Account created. An administrator must approve it before you can sign in.';
+      msg.className = 'success';
+      e.target.reset();
     } else {
-      const err = await res.json().catch(() => ({}));
-      document.getElementById('login-error').textContent = err.detail || 'Login failed';
+      msg.textContent = body.detail || 'Signup failed';
+      msg.className = 'error';
     }
   });
 </script>
 ```
 
-If already logged in, `login.html` should immediately redirect to `/`:
-
-```js
-if (auth.isAuthed()) window.location.replace('/');
-```
+On success, show the "pending approval" message. Do **not** attempt to log in.
 
 ---
 
-## 4. App shell guard + HTMX header injection
+## 4. Login page — `templates/login.html`
+
+Login no longer returns tokens. It returns an MFA challenge; route the user to the
+2FA screen.
+
+```js
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = new FormData(e.target);
+  const res = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: f.get('email'), password: f.get('password') }),
+  });
+  const body = await res.json().catch(() => ({}));
+  const err = document.getElementById('login-error');
+
+  if (res.status === 200) {
+    auth.setChallenge(body.challenge_token);
+    // setup_required -> first-time 2FA setup; mfa_required -> verify
+    window.location.replace('/mfa');
+    return;
+  }
+  if (res.status === 403 && /pending/i.test(body.detail || '')) {
+    err.textContent = 'Your account is awaiting administrator approval.';
+  } else {
+    err.textContent = body.detail || 'Login failed';
+  }
+});
+```
+
+If already authed, redirect to `/`; add a link to `/signup`.
+
+---
+
+## 5. 2FA page — `templates/mfa.html`
+
+Handles both **setup** (first login) and **verify** (later logins), decided by
+calling `/2fa/setup`:
+
+```js
+if (!auth.challenge) window.location.replace('/login');
+
+const res = await fetch('/api/auth/2fa/setup', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ challenge_token: auth.challenge }),
+});
+
+if (res.status === 200) {
+  // First login: show QR + code input, then call /2fa/enable
+  const { secret, otpauth_url } = await res.json();
+  renderQr(otpauth_url);            // see note below
+  showSetupForm(secret);
+} else {
+  // Already configured: show code / recovery-code input, then call /2fa/verify
+  showVerifyForm();
+}
+```
+
+- Render the QR client-side from `otpauth_url` with a small QR library (e.g.
+  `qrcode`), or display `secret` for manual entry. Do not call external QR services.
+- **Enable** (first login): POST `/api/auth/2fa/enable` with
+  `{ challenge_token, code }`. On `200`, store tokens, then **show the returned
+  `recovery_codes` once** and require the user to acknowledge before continuing.
+- **Verify** (later): POST `/api/auth/2fa/verify` with
+  `{ challenge_token, code }` or `{ challenge_token, recovery_code }`. On `200`,
+  store tokens and go to `/`.
+
+```js
+function onMfaSuccess(data, recoveryCodes) {
+  auth.set(data.access_token, data.refresh_token);
+  auth.clearChallenge();
+  if (recoveryCodes && recoveryCodes.length) {
+    showRecoveryCodesOnce(recoveryCodes); // user must copy/save, then continue
+  } else {
+    window.location.replace('/');
+  }
+}
+```
+
+Handle `400` (wrong code) and `401` (expired challenge → back to `/login`).
+
+---
+
+## 6. App shell guard + HTMX header injection
 
 In `shell.html` (or `app.js`), before rendering content:
 
@@ -159,7 +254,7 @@ In `shell.html` (or `app.js`), before rendering content:
 if (!auth.isAuthed()) window.location.replace('/login');
 ```
 
-Inject the header on **every** HTMX request and handle auth failures:
+Inject the header on every HTMX request and handle auth failures:
 
 ```js
 document.body.addEventListener('htmx:configRequest', (e) => {
@@ -168,35 +263,23 @@ document.body.addEventListener('htmx:configRequest', (e) => {
 
 document.body.addEventListener('htmx:responseError', async (e) => {
   if (e.detail.xhr.status !== 401) return;
-
   if (await refreshTokens()) {
-    // Re-issue the failed request with the new token.
     const cfg = e.detail.requestConfig;
-    if (cfg) {
-      htmx.ajax(cfg.verb, cfg.path, {
-        target: cfg.target,
-        headers: auth.headers(),
-      });
-    }
+    if (cfg) htmx.ajax(cfg.verb, cfg.path, { target: cfg.target, headers: auth.headers() });
     return;
   }
   window.location.replace('/login');
 });
 ```
 
-> The existing nav in `index.html` already uses `hx-get` + `hx-target="#main-content"`,
-> so once the header is injected the nav works unchanged.
+The existing nav (`hx-get` + `hx-target="#main-content"`) works unchanged once the
+header is injected.
 
 ---
 
-## 5. Authenticated downloads (blob save)
+## 7. Authenticated downloads (blob save)
 
-`<a href="/api/download/...">` **cannot** carry the token. Replace every download
-link (in `partials/cleaned_view.html`, `partials/data_view.html`,
-`partials/analyse_file_card.html`, `partials/nuban_file_card.html`,
-`partials/intelligence_file_card.html`) with a JS handler.
-
-Add to `auth.js`:
+Replace every `<a href="/api/download/...">` with a JS handler.
 
 ```js
 async function apiFetch(url, options = {}) {
@@ -217,34 +300,19 @@ async function downloadFile(url, filename) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = filename || 'download';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(a.href);
 }
 ```
 
-Usage:
-
 ```html
-<!-- before -->
-<a href="/api/download/{{ file.name }}">Download</a>
-
-<!-- after -->
 <button type="button"
-        onclick="downloadFile('/api/download/{{ file.name }}', '{{ file.name }}')">
-  Download
-</button>
+        onclick="downloadFile('/api/download/{{ file.name }}', '{{ file.name }}')">Download</button>
 ```
-
-Batch download (`POST /api/download-batch`) takes form fields, so call it with
-`apiFetch` and a `FormData` body, then save the returned blob the same way.
 
 ---
 
-## 6. Logout + user menu
-
-Add a logout control to the header in `shell.html`:
+## 8. Logout + user menu
 
 ```js
 async function logout() {
@@ -261,33 +329,36 @@ async function logout() {
 }
 ```
 
-Optionally call `GET /api/auth/me` on shell load to show the user's email/name in
-the header (also a good early check that the stored token is still valid).
+Call `GET /api/auth/me` on shell load to show the user's name/email and confirm the
+token is still valid.
 
 ---
 
-## 7. Behaviour checklist
+## 9. Behaviour checklist
 
-- [ ] Visiting `/` with no token redirects to `/login`.
-- [ ] Wrong credentials show the error from `detail`; correct credentials land on `/`.
-- [ ] After login, nav tabs load content via HTMX (token attached automatically).
-- [ ] Let the access token expire (~30 min) and use the app: it refreshes silently
-      and continues; if refresh fails, you land on `/login`.
+- [ ] `/signup` creates an account and shows the "pending approval" message.
+- [ ] Logging in before approval shows the pending message (403).
+- [ ] After approval, first login routes to 2FA setup; QR renders; wrong code shows an error.
+- [ ] Enabling 2FA shows the recovery codes once and stores tokens on acknowledgement.
+- [ ] Later logins ask for a code; a recovery code also works, and cannot be reused.
+- [ ] `/` with no token redirects to `/login`.
+- [ ] Nav tabs load content via HTMX (token attached automatically).
+- [ ] After ~30 min the app refreshes silently; on refresh failure you land on `/login`.
 - [ ] Every download works and does not navigate away.
-- [ ] Logout clears storage and returns to `/login`; hitting Back does not show data.
-- [ ] Refreshing the browser on `/` keeps you signed in (token in `localStorage`).
-- [ ] `/admin` remains separate: it has its own login page and session cookie.
+- [ ] Logout clears storage and returns to `/login`; Back does not reveal data.
+- [ ] Refreshing `/` keeps you signed in (token in `localStorage`).
+- [ ] `/admin` stays separate (own login + session cookie) for approvers.
 
 ---
 
-## 8. Security notes
+## 10. Security notes
 
-- `localStorage` is readable by any script on the page, so it is vulnerable to
-  XSS. Keep the app free of untrusted inline scripts; if you need stronger
-  isolation, hold the access token in memory and the refresh token in
-  `localStorage`, re-authenticating on reload.
-- Always serve over **HTTPS** in production and set a strong backend
-  `SECRET_KEY`. Set `ADMIN_SESSION_HTTPS_ONLY=true` for the admin cookie.
+- `localStorage` is readable by any script on the page (XSS risk). Keep the app free
+  of untrusted inline scripts; for stronger isolation, hold the access token in
+  memory and the refresh token in `localStorage`, re-authenticating on reload.
+- Always serve over **HTTPS** in production; set a strong backend `SECRET_KEY` and
+  `ADMIN_SESSION_HTTPS_ONLY=true`.
 - Never put tokens in URLs or query strings.
-- Refresh tokens rotate; always replace the stored refresh token with the one
-  returned by `/api/auth/refresh`.
+- Refresh tokens rotate; always replace the stored refresh token with the one from
+  `/api/auth/refresh`.
+- The MFA `challenge_token` is short-lived; clear it after use and on failure.

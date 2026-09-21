@@ -79,6 +79,24 @@ class Settings(BaseSettings):
         description="Mark the Starlette Admin session cookie as HTTPS-only"
     )
 
+    totp_issuer: str = Field(
+        default="AKIRS Data Toolkit",
+        validation_alias="TOTP_ISSUER",
+        description="Issuer name shown in authenticator apps for TOTP 2FA"
+    )
+
+    mfa_challenge_expire_minutes: int = Field(
+        default=10,
+        validation_alias="MFA_CHALLENGE_EXPIRE_MINUTES",
+        description="Lifetime of the short-lived MFA challenge token in minutes"
+    )
+
+    recovery_code_count: int = Field(
+        default=10,
+        validation_alias="RECOVERY_CODE_COUNT",
+        description="Number of one-time recovery codes generated when 2FA is enabled"
+    )
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 settings = Settings()

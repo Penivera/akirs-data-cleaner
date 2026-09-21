@@ -19,8 +19,14 @@ class User(Base):
     full_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     hashed_password: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_approved: Mapped[bool] = mapped_column(Boolean, default=False)
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False)
     token_version: Mapped[int] = mapped_column(Integer, default=0)
+    totp_secret: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    pending_totp_secret: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True
+    )
+    totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )
@@ -29,6 +35,9 @@ class User(Base):
     )
 
     refresh_tokens: Mapped[List["RefreshToken"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    recovery_codes: Mapped[List["RecoveryCode"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
 
@@ -55,6 +64,25 @@ class RefreshToken(Base):
 
     def __repr__(self) -> str:
         return f"<RefreshToken user_id={self.user_id} revoked={self.revoked}>"
+
+
+class RecoveryCode(Base):
+    __tablename__ = "recovery_codes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    code_hash: Mapped[str] = mapped_column(String(128))
+    used: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+    user: Mapped["User"] = relationship(back_populates="recovery_codes")
+
+    def __repr__(self) -> str:
+        return f"<RecoveryCode user_id={self.user_id} used={self.used}>"
 
 
 class AuditLog(Base):
