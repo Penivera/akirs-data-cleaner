@@ -19,6 +19,7 @@
             tab.setAttribute('aria-selected', String(selected));
             tab.tabIndex = selected ? 0 : -1;
             document.getElementById(`${name}-panel`).hidden = !selected;
+            document.getElementById(`${name}-instructions`).hidden = !selected || screen !== 'account';
         });
         message.hidden = true;
     }
@@ -31,14 +32,17 @@
         selectTab(signup);
         document.getElementById(signup ? 'signup-tab' : 'login-tab').focus();
     });
-    if (new URLSearchParams(location.search).get('mode') === 'signup') selectTab(true);
-    document.getElementById('peek-password').addEventListener('click', event => {
-        const input = document.getElementById('confirm-password');
-        const visible = input.type === 'password';
-        input.type = visible ? 'text' : 'password';
-        event.currentTarget.textContent = visible ? 'Hide' : 'Show';
-        event.currentTarget.setAttribute('aria-pressed', String(visible));
-        event.currentTarget.setAttribute('aria-label', `${visible ? 'Hide' : 'Show'} confirmation password`);
+    selectTab(new URLSearchParams(location.search).get('mode') === 'signup');
+    document.querySelectorAll('.auth-password button[aria-controls]').forEach(button => {
+        button.addEventListener('click', () => {
+            const input = document.getElementById(button.getAttribute('aria-controls'));
+            const visible = input.type === 'password';
+            input.type = visible ? 'text' : 'password';
+            button.textContent = visible ? 'Hide' : 'Show';
+            button.setAttribute('aria-pressed', String(visible));
+            const field = input.id === 'login-password' ? 'login' : 'confirmation';
+            button.setAttribute('aria-label', `${visible ? 'Hide' : 'Show'} ${field} password`);
+        });
     });
     document.getElementById('login-form').addEventListener('submit', async event => {
         event.preventDefault();
