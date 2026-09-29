@@ -3,6 +3,9 @@
     const auth = window.AKIRSAuth;
     const message = document.getElementById('auth-message');
     const screens = ['account', 'setup', 'mfa', 'pending', 'recovery'];
+    // Mirrors the challenge for the session so a reload on /auth/mfa can still
+    // decide whether to show the "use a recovery code" toggle.
+    const RECOVERY_FLAG_KEY = 'akirs_recovery_available';
 
     function showMessage(text, kind = 'error') {
         message.textContent = text;
@@ -116,10 +119,12 @@
                 return;
             }
             auth.setChallenge(data.challenge_token);
+            sessionStorage.setItem(RECOVERY_FLAG_KEY, data.recovery_codes_available ? '1' : '0');
             form.reset();
             if (data.setup_required) {
                 await beginSetup();
             } else {
+                setRecoveryOption(data.recovery_codes_available === true);
                 showScreen('mfa');
             }
         } catch (error) {
@@ -211,10 +216,16 @@
                 showMessage(typeof data.detail === 'string' ? data.detail : 'That code is not valid. Try again.');
                 return;
             }
+            const recoveryCodes = data.recovery_codes || [];
             auth.setTokens(data.access_token, data.refresh_token);
             auth.clearChallenge();
             form.reset();
-            showRecoveryCodes(data.recovery_codes || []);
+            if (recoveryCodes.length) {
+                showRecoveryCodes(recoveryCodes);
+            } else {
+                // No recovery codes configured (RECOVERY_CODE_COUNT=0): skip the screen.
+                auth.redirectToWorkspace();
+            }
         } catch (error) {
             showMessage('Unable to connect. Check your connection and try again.');
         } finally {
@@ -239,13 +250,29 @@
 
     // --- Two-factor verification ----------------------------------------------
     const recoveryRow = document.getElementById('mfa-recovery-row');
+    const mfaCodeField = document.getElementById('mfa-code').closest('.auth-field');
     const mfaCodeInput = document.getElementById('mfa-code');
     const recoveryCodeInput = document.getElementById('recovery-code');
-    document.getElementById('use-recovery').addEventListener('click', (event) => {
+    const useRecoveryButton = document.getElementById('use-recovery');
+
+    // Reset the MFA form to authenticator-code mode. When the account has no
+    // unused recovery codes, hide the toggle entirely so users cannot attempt a
+    // code that can never succeed.
+    function setRecoveryOption(available) {
+        recoveryRow.hidden = true;
+        mfaCodeField.hidden = false;
+        mfaCodeInput.required = true;
+        recoveryCodeInput.required = false;
+        recoveryCodeInput.value = '';
+        useRecoveryButton.textContent = 'Use a recovery code instead';
+        useRecoveryButton.hidden = !available;
+    }
+
+    useRecoveryButton.addEventListener('click', (event) => {
         event.preventDefault();
         const showing = !recoveryRow.hidden;
         recoveryRow.hidden = showing;
-        mfaCodeInput.closest('.auth-field').hidden = !showing;
+        mfaCodeField.hidden = !showing;
         mfaCodeInput.required = !showing;
         recoveryCodeInput.required = showing;
         event.currentTarget.textContent = showing
@@ -298,6 +325,9 @@
         } else if (screen === 'setup') {
             beginSetup();
         } else {
+            if (screen === 'mfa') {
+                setRecoveryOption(sessionStorage.getItem(RECOVERY_FLAG_KEY) === '1');
+            }
             showScreen(screen);
         }
     }

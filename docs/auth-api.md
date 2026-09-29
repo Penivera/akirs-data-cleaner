@@ -91,12 +91,16 @@ Authorization: Bearer <access_token>
 {
   "mfa_required": false,
   "setup_required": true,
-  "challenge_token": "eyJhbGciOiJIUzI1NiIs..."
+  "challenge_token": "eyJhbGciOiJIUzI1NiIs...",
+  "recovery_codes_available": false
 }
 ```
 
 - `setup_required: true` — user has not configured 2FA yet; call `/2fa/setup`.
 - `mfa_required: true` — user has 2FA; call `/2fa/verify`.
+- `recovery_codes_available` — whether the user has any unused recovery codes.
+  The UI hides the "use a recovery code" option when this is `false`
+  (for example when `RECOVERY_CODE_COUNT=0`).
 
 ### `TokenResponse`
 
@@ -207,11 +211,14 @@ Confirm setup with a code, enable 2FA, and receive tokens plus recovery codes.
 
 | Status | Meaning |
 |--------|---------|
-| `200` | `MfaTokenResponse` with `recovery_codes` (10 codes, shown once) |
+| `200` | `MfaTokenResponse` with `recovery_codes` (`RECOVERY_CODE_COUNT` codes, shown once) |
 | `400` | Invalid verification code, or setup not started |
 
 Store the recovery codes securely; they are hashed server-side and cannot be
 retrieved again.
+
+If `RECOVERY_CODE_COUNT=0`, `recovery_codes` is an empty list and the UI skips
+the "save your recovery codes" screen entirely.
 
 ---
 

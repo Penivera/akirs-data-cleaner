@@ -78,6 +78,7 @@ class MfaChallengeResponse(BaseModel):
     mfa_required: bool
     setup_required: bool
     challenge_token: str
+    recovery_codes_available: bool = False
 
 
 class MfaSetupRequest(BaseModel):
@@ -280,11 +281,18 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
     challenge_token = create_mfa_challenge_token(
         user.id, setup_required, user.token_version
     )
+    recovery_codes_available = (
+        db.query(RecoveryCode)
+        .filter(RecoveryCode.user_id == user.id, RecoveryCode.used.is_(False))
+        .count()
+        > 0
+    )
     log_audit("login", user=user, status="mfa_challenge", request=request)
     return MfaChallengeResponse(
         mfa_required=not setup_required,
         setup_required=setup_required,
         challenge_token=challenge_token,
+        recovery_codes_available=recovery_codes_available,
     )
 
 
