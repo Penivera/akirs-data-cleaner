@@ -17,7 +17,7 @@ The system follows a **three-tier architecture**:
 - **Application Tier** — FastAPI backend split into 4 API routers and 4 service modules, with a shared core for configuration and state.
 - **Storage/Integration Tier** — Local file system for uploads, cleaned outputs, and reports; plus 3 external REST APIs (Paystack, Flutterwave, AKIRS TMS).
 
-> **Note:** There is **no SQL database**. All application state is held in-memory via Python dictionaries and persisted to disk using `pickle` at `uploads/state_database.pkl` with atomic file replacement.
+> **Note:** Application state (work items and background tasks) is stored in a **SQL database** (`work_items` and `tasks` tables) via `app/core/repository.py`, so multiple worker processes share the same state. SQLite (WAL mode) is the default; PostgreSQL is supported for multi-host deployments.
 
 ---
 
@@ -74,16 +74,16 @@ The batch cleaner is the core module. The pipeline steps:
 
 ![State Model](07_state_model.png)
 
-The application uses **4 state classes**, each stored in an in-memory `Dict[str, State]`:
+The application uses **4 state classes**, each stored in the `work_items` table (JSON blob plus indexed `kind`/`user_id` columns) and accessed through `app/core/repository.py`:
 
-| State Class | Managed By | Key Fields |
+| State Class | Kind | Key Fields |
 |---|---|---|
-| **FileState** | `file_db` | headers, mapped_fields, preset_name, duplicate_logic, health_report, extracted_records, duplicate_groups, db_matches |
-| **AnalysisState** | `analysis_db` | config dict (identity/metric/credit/debit cols, FX, limits), report_path |
-| **NubanState** | `nuban_db` | mapped_nuban_col, mapped_target_col, selected_bank_code, resolved_path |
-| **IntelSyncState** | `intelsync_db` | matched_records, unique_records_count, verify_db_fuzzy |
+| **FileState** | `file` | headers, mapped_fields, preset_name, duplicate_logic, health_report, extracted_records, duplicate_groups, db_matches |
+| **AnalysisState** | `analysis` | config dict (identity/metric/credit/debit cols, FX, limits), report_path |
+| **NubanState** | `nuban` | mapped_nuban_col, mapped_target_col, selected_bank_code, resolved_path |
+| **IntelSyncState** | `intel` | matched_records, unique_records_count, verify_db_fuzzy |
 
-All 4 dictionaries are serialized together to `uploads/state_database.pkl` via `save_all_states()` (atomic write: `.tmp` → `os.replace`), and loaded on startup via `load_all_states()`.
+Each state object is serialized to JSON (`state.__dict__`) and upserted with `repository.put(kind, state)`; reads use `repository.get` / `repository.list_for_user`. Background task status lives in the `tasks` table. The cleanup job purges rows older than `CLEANUP_MAX_AGE_HOURS`.
 
 ---
 
@@ -137,9 +137,10 @@ akirs/
 │   ├── css/style.css
 │   ├── js/app.js
 │   └── akirs.png
-├── uploads/                         # Raw uploads + state_database.pkl
-├── cleaned/                         # Output CSVs
-├── reports/                         # Markdown analysis reports
+├── data/                            # SQLite database (app.db) + WAL files
+├── uploads/{user_id}/               # Raw uploads (per user)
+├── cleaned/{user_id}/               # Output CSVs (per user)
+├── reports/{user_id}/               # Markdown analysis reports (per user)
 └── docs/
     ├── architecture.md              # This document
     └── generate_diagrams.py         # Script to regenerate diagrams
