@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, Request, Form, Depends
+from fastapi import APIRouter, UploadFile, File, Request, Form, Depends, BackgroundTasks
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 import hashlib
@@ -7,10 +7,20 @@ import time
 from io import BytesIO
 from typing import Dict, Any, List
 
+from app.core import repository as repo
 from app.core.deps import get_current_user
+from app.core.executor import run_cpu
 from app.core.models import User
-from app.core.state import file_db, FileState, TARGET_FIELDS, PRESETS, save_all_states
+from app.core.state import (
+    FileState,
+    TARGET_FIELDS,
+    PRESETS,
+    get_user_upload_dir,
+    get_user_cleaned_dir,
+    get_user_reports_dir,
+)
 from app.services.audit import log_audit
+from app.services.validators import validate_upload
 from app.services.cleaner import (
     auto_map_headers,
     extract_records,
@@ -31,11 +41,12 @@ DUPLICATE_UPLOAD_WINDOW_SECONDS = 5
 
 
 @router.get("/", response_class=HTMLResponse)
-async def read_index(request: Request):
+async def read_index(request: Request, current_user: User = Depends(get_current_user)):
+    user_files = repo.list_for_user(repo.KIND_FILE, current_user.id)
     return templates.TemplateResponse(
         request=request,
         name="index.html",
-        context={"request": request, "files": file_db.values()},
+        context={"request": request, "files": user_files},
     )
 
 
@@ -45,19 +56,41 @@ async def upload_file(
     file: List[UploadFile] = File(...),
     current_user: User = Depends(get_current_user),
 ):
-    os.makedirs("uploads", exist_ok=True)
-    
+    user_upload_dir = get_user_upload_dir(current_user.id)
+
     files_to_process = file if isinstance(file, list) else [file]
     processed_states = []
     now = time.time()
-    
+
     for f in files_to_process:
-        file_bytes = await f.read()
-        file_hash = hashlib.sha256(file_bytes).hexdigest()
-        file_size = len(file_bytes)
-        
+        validate_upload(f)
+
+        # Stream file to disk in chunks to avoid loading entire file into memory
+        safe_filename = os.path.basename(f.filename).replace("..", "").replace("/", "_").replace("\\", "_")
+        temp_path = os.path.join(user_upload_dir, safe_filename)
+
+        hasher = hashlib.sha256()
+        file_size = 0
+        max_size_bytes = settings.max_upload_size_mb * 1024 * 1024
+
+        with open(temp_path, "wb") as file_out:
+            while chunk := await f.read(1024 * 1024):  # 1MB chunks
+                file_size += len(chunk)
+                if file_size > max_size_bytes:
+                    file_out.close()
+                    os.remove(temp_path)
+                    from fastapi import HTTPException
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File size exceeds the maximum allowed size of {settings.max_upload_size_mb}MB",
+                    )
+                hasher.update(chunk)
+                file_out.write(chunk)
+
+        file_hash = hasher.hexdigest()
+
         is_duplicate = False
-        for existing_state in file_db.values():
+        for existing_state in repo.list_for_user(repo.KIND_FILE, current_user.id):
             if (
                 existing_state.original_filename == f.filename
                 and getattr(existing_state, "upload_hash", "") == file_hash
@@ -66,24 +99,21 @@ async def upload_file(
                 processed_states.append(existing_state)
                 is_duplicate = True
                 break
-                
+
         if is_duplicate:
+            os.remove(temp_path)  # Clean up the duplicate file
             continue
 
-        temp_path = os.path.join("uploads", os.path.basename(f.filename))
-
-        with open(temp_path, "wb") as file_out:
-            file_out.write(file_bytes)
-
         state = FileState()
+        state.user_id = current_user.id
         state.original_filename = f.filename
         state.saved_path = temp_path
         state.upload_hash = file_hash
         state.upload_size = file_size
         state.uploaded_at = now
 
-        # Run pre-flight health validator
-        state.health_report = pre_flight_validate(temp_path)
+        # Run pre-flight health validator (CPU-bound: off the event loop)
+        state.health_report = await run_cpu(pre_flight_validate, temp_path)
 
         # Smart auto-detection of preset
         if "intel" in f.filename.lower():
@@ -97,27 +127,30 @@ async def upload_file(
             state.primary_key_field = "NUBAN"
             state.output_pattern = "{filename}"
 
-        # Analyze headers
+        # Analyze headers (CPU-bound: off the event loop)
         try:
-            _, sheet_names = load_tabular_rows(temp_path, "")
+            _, sheet_names = await run_cpu(load_tabular_rows, temp_path, "")
             state.sheet_names = sheet_names
 
             if len(sheet_names) > 1:
                 state.status = "Needs Sheet"
             else:
                 state.selected_sheets = [sheet_names[0]] if sheet_names else [""]
-                rows, _ = load_tabular_rows(temp_path, state.selected_sheets[0])
-                idx, headers = find_header_row_and_headers_from_rows(rows)
+                rows, _ = await run_cpu(load_tabular_rows, temp_path, state.selected_sheets[0])
+                idx, headers = await run_cpu(find_header_row_and_headers_from_rows, rows)
                 state.headers = [h for h in headers if h]
                 state.header_row_idx = idx
 
                 # Run pre-flight check again with sheets if needed
-                state.health_report = pre_flight_validate(temp_path, state.selected_sheets[0])
+                state.health_report = await run_cpu(
+                    pre_flight_validate, temp_path, state.selected_sheets[0]
+                )
 
                 mapped_fields, status = auto_map_headers(state.headers, state.preset_name)
                 state.mapped_fields = mapped_fields
                 state.status = status
-                state.available_branches = detect_distinct_branches(
+                state.available_branches = await run_cpu(
+                    detect_distinct_branches,
                     state.headers,
                     rows,
                     idx,
@@ -126,8 +159,7 @@ async def upload_file(
         except Exception as e:
             state.status = f"Error: {str(e)}"
 
-        file_db[state.id] = state
-        save_all_states()
+        repo.put(repo.KIND_FILE, state)
         processed_states.append(state)
         log_audit(
             "upload",
@@ -153,9 +185,9 @@ async def upload_file(
 
 
 @router.post("/api/components/mapping/{file_id}", response_class=HTMLResponse)
-async def edit_mapping(request: Request, file_id: str):
-    state = file_db.get(file_id)
-    if not state:
+async def edit_mapping(request: Request, file_id: str, current_user: User = Depends(get_current_user)):
+    state = repo.get(repo.KIND_FILE, file_id)
+    if not state or state.user_id != current_user.id:
         return "File not found"
 
     preset_arg = request.query_params.get("preset")
@@ -195,7 +227,11 @@ async def edit_mapping(request: Request, file_id: str):
     preview_rows = []
     if state.status != "Needs Sheet" and getattr(state, "header_row_idx", None) is not None:
         try:
-            rows, _ = load_tabular_rows(state.saved_path, state.selected_sheets[0] if state.selected_sheets else "")
+            rows, _ = await run_cpu(
+                load_tabular_rows,
+                state.saved_path,
+                state.selected_sheets[0] if state.selected_sheets else "",
+            )
             # Limit preview rows to 10 for performance
             preview_rows = rows[state.header_row_idx + 1 : state.header_row_idx + 11]
         except Exception:
@@ -214,9 +250,9 @@ async def edit_mapping(request: Request, file_id: str):
 
 
 @router.post("/api/mapping/{file_id}", response_class=HTMLResponse)
-async def save_mapping(request: Request, file_id: str):
-    state = file_db.get(file_id)
-    if not state:
+async def save_mapping(request: Request, file_id: str, current_user: User = Depends(get_current_user)):
+    state = repo.get(repo.KIND_FILE, file_id)
+    if not state or state.user_id != current_user.id:
         return "File not found"
 
     form_data = await request.form()
@@ -225,16 +261,21 @@ async def save_mapping(request: Request, file_id: str):
     if form_data.getlist("selected_sheets"):
         state.selected_sheets = form_data.getlist("selected_sheets")
         try:
-            state.health_report = pre_flight_validate(state.saved_path, state.selected_sheets[0])
-            rows, _ = load_tabular_rows(state.saved_path, state.selected_sheets[0])
-            idx, headers = find_header_row_and_headers_from_rows(rows)
+            state.health_report = await run_cpu(
+                pre_flight_validate, state.saved_path, state.selected_sheets[0]
+            )
+            rows, _ = await run_cpu(
+                load_tabular_rows, state.saved_path, state.selected_sheets[0]
+            )
+            idx, headers = await run_cpu(find_header_row_and_headers_from_rows, rows)
             state.headers = [h for h in headers if h]
             state.header_row_idx = idx
 
             mapped_fields, status = auto_map_headers(state.headers, state.preset_name)
             state.mapped_fields = mapped_fields
             state.status = status
-            state.available_branches = detect_distinct_branches(
+            state.available_branches = await run_cpu(
+                detect_distinct_branches,
                 state.headers,
                 rows,
                 idx,
@@ -303,7 +344,7 @@ async def save_mapping(request: Request, file_id: str):
     else:
         fields = PRESETS.get(state.preset_name, PRESETS["retail"])["fields"]
 
-    save_all_states()
+    repo.put(repo.KIND_FILE, state)
     return templates.TemplateResponse(
         request=request,
         name="partials/file_card.html",
@@ -317,10 +358,21 @@ async def delete_file(
     file_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    state = file_db.get(file_id)
-    if state is not None:
-        del file_db[file_id]
-        save_all_states()
+    state = repo.get(repo.KIND_FILE, file_id)
+    if state is not None and state.user_id == current_user.id:
+        # Delete the physical file
+        if state.saved_path and os.path.exists(state.saved_path):
+            try:
+                os.remove(state.saved_path)
+            except OSError:
+                pass
+        # Delete the cleaned output if it exists
+        if state.cleaned_path and os.path.exists(state.cleaned_path):
+            try:
+                os.remove(state.cleaned_path)
+            except OSError:
+                pass
+        repo.delete(repo.KIND_FILE, file_id)
         log_audit(
             "delete",
             user=current_user,
@@ -334,10 +386,11 @@ async def delete_file(
 async def process_file(
     request: Request,
     file_id: str,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
 ):
-    state = file_db.get(file_id)
-    if not state:
+    state = repo.get(repo.KIND_FILE, file_id)
+    if not state or state.user_id != current_user.id:
         return "File not found"
 
     if state.preset_name == "custom":
@@ -345,8 +398,50 @@ async def process_file(
     else:
         fields = PRESETS.get(state.preset_name, PRESETS["retail"])["fields"]
 
+    # Mark as processing and queue background task
+    state.status = "Processing..."
+    task_id = f"proc_{state.id}"
+    repo.set_task(task_id, file_id, current_user.id, "processing", "Starting...")
+
+    background_tasks.add_task(
+        _process_file_background,
+        file_id=file_id,
+        user_id=current_user.id,
+        task_id=task_id,
+    )
+
+    repo.put(repo.KIND_FILE, state)
+    log_audit(
+        "process_started",
+        user=current_user,
+        filename=state.original_filename,
+        status="Processing...",
+        request=request,
+    )
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/file_card.html",
+        context={"request": request, "file": state, "targets": fields},
+    )
+
+
+async def _process_file_background(file_id: str, user_id: int, task_id: str):
+    """Run the actual file processing in the background."""
+    state = repo.get(repo.KIND_FILE, file_id)
+    if not state or state.user_id != user_id:
+        repo.set_task(task_id, file_id, user_id, "failed", "File not found")
+        return
+
+    if state.preset_name == "custom":
+        fields = state.custom_fields
+    else:
+        fields = PRESETS.get(state.preset_name, PRESETS["retail"])["fields"]
+
     try:
-        records, skipped_records = extract_records(
+        repo.update_task(task_id, message="Extracting records...")
+        records, skipped_records = await run_cpu(
+            extract_records,
             state.saved_path,
             state.mapped_fields,
             state.header_row_idx,
@@ -361,16 +456,22 @@ async def process_file(
             getattr(state, "field_separators", None),
         )
         state.skipped_records = skipped_records
-        duplicate_groups = find_duplicate_groups(records, state.duplicate_logic, state.primary_key_field, fields)
+
+        repo.update_task(task_id, message="Checking for duplicates...")
+        duplicate_groups = await run_cpu(
+            find_duplicate_groups, records, state.duplicate_logic, state.primary_key_field, fields
+        )
 
         if duplicate_groups:
             state.extracted_records = records
             state.duplicate_groups = duplicate_groups
             state.status = f"Needs Duplicate Review ({len(duplicate_groups)} groups)"
+            repo.set_task(task_id, file_id, user_id, "done", state.status)
         else:
             # Check against live DB
             has_db_matches = False
             if getattr(state, "verify_db", False):
+                repo.update_task(task_id, message="Checking against live DB...")
                 matches_zipped = await check_file_records_against_db(
                     records,
                     fields,
@@ -390,27 +491,41 @@ async def process_file(
                     state.db_matches = db_matches
                     state.status = f"Needs DB Review ({len(db_matches)} matches)"
                     has_db_matches = True
-            
+
             if not has_db_matches:
-                out_path = save_cleaned_records(state.saved_path, records, fields, state.output_pattern)
+                repo.update_task(task_id, message="Writing cleaned file...")
+                cleaned_dir = get_user_cleaned_dir(user_id)
+                out_path = await run_cpu(
+                    save_cleaned_records,
+                    state.saved_path,
+                    records,
+                    fields,
+                    state.output_pattern,
+                    output_dir=cleaned_dir,
+                )
                 state.status = f"Processed ({len(records)} rows)"
-                setattr(state, "cleaned_path", out_path)
+                state.cleaned_path = out_path
+                repo.set_task(task_id, file_id, user_id, "done", state.status)
+
     except Exception as e:
         state.status = f"Failed ({str(e)})"
+        repo.set_task(task_id, file_id, user_id, "failed", str(e))
 
-    save_all_states()
-    log_audit(
-        "process",
-        user=current_user,
-        filename=state.original_filename,
-        status=state.status,
-        request=request,
-    )
-    return templates.TemplateResponse(
-        request=request,
-        name="partials/file_card.html",
-        context={"request": request, "file": state, "targets": fields},
-    )
+    repo.put(repo.KIND_FILE, state)
+
+
+@router.get("/api/task-status/{task_id}")
+async def get_task_status(task_id: str, current_user: User = Depends(get_current_user)):
+    """Poll the status of a background processing task."""
+    task = repo.get_task(task_id)
+    if not task or task.get("user_id") != current_user.id:
+        return {"status": "unknown", "message": "Task not found"}
+
+    return {
+        "status": task["status"],
+        "file_id": task["file_id"],
+        "message": task["message"],
+    }
 
 
 @router.post("/api/duplicates/{file_id}", response_class=HTMLResponse)
@@ -419,8 +534,8 @@ async def resolve_duplicates(
     file_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    state = file_db.get(file_id)
-    if not state:
+    state = repo.get(repo.KIND_FILE, file_id)
+    if not state or state.user_id != current_user.id:
         return "File not found"
 
     if state.preset_name == "custom":
@@ -451,7 +566,8 @@ async def resolve_duplicates(
     try:
         records = state.extracted_records or []
         duplicate_groups = state.duplicate_groups or []
-        resolved_records = resolve_duplicate_records(
+        resolved_records = await run_cpu(
+            resolve_duplicate_records,
             records,
             duplicate_groups,
             decision,
@@ -483,7 +599,15 @@ async def resolve_duplicates(
                 has_db_matches = True
                 
         if not has_db_matches:
-            out_path = save_cleaned_records(state.saved_path, resolved_records, fields, state.output_pattern)
+            cleaned_dir = get_user_cleaned_dir(current_user.id)
+            out_path = await run_cpu(
+                save_cleaned_records,
+                state.saved_path,
+                resolved_records,
+                fields,
+                state.output_pattern,
+                output_dir=cleaned_dir,
+            )
             state.status = f"Processed ({len(resolved_records)} rows)"
             state.cleaned_path = out_path
             state.duplicate_groups = []
@@ -491,7 +615,7 @@ async def resolve_duplicates(
     except Exception as e:
         state.status = f"Failed ({str(e)})"
 
-    save_all_states()
+    repo.put(repo.KIND_FILE, state)
     log_audit(
         "resolve_duplicates",
         user=current_user,
@@ -513,8 +637,8 @@ async def resolve_db(
     file_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    state = file_db.get(file_id)
-    if not state:
+    state = repo.get(repo.KIND_FILE, file_id)
+    if not state or state.user_id != current_user.id:
         return "File not found"
 
     if state.preset_name == "custom":
@@ -544,15 +668,23 @@ async def resolve_db(
         final_records.append(rec)
         
     try:
-        out_path = save_cleaned_records(state.saved_path, final_records, fields, state.output_pattern)
+        cleaned_dir = get_user_cleaned_dir(current_user.id)
+        out_path = await run_cpu(
+            save_cleaned_records,
+            state.saved_path,
+            final_records,
+            fields,
+            state.output_pattern,
+            output_dir=cleaned_dir,
+        )
         state.status = f"Processed ({len(final_records)} rows, {skipped_count} skipped)"
         state.cleaned_path = out_path
         state.db_matches = []
         state.extracted_records = []
     except Exception as e:
         state.status = f"Failed ({str(e)})"
-        
-    save_all_states()
+
+    repo.put(repo.KIND_FILE, state)
     log_audit(
         "resolve_db",
         user=current_user,
@@ -568,27 +700,30 @@ async def resolve_db(
 
 
 @router.get("/api/view/process", response_class=HTMLResponse)
-async def get_process_view(request: Request):
+async def get_process_view(request: Request, current_user: User = Depends(get_current_user)):
+    user_files = repo.list_for_user(repo.KIND_FILE, current_user.id)
     return templates.TemplateResponse(
         request=request,
         name="partials/process_view.html",
-        context={"request": request, "files": file_db.values()},
+        context={"request": request, "files": user_files},
     )
 
 
 @router.get("/api/view/cleaned", response_class=HTMLResponse)
-async def get_cleaned_view(request: Request):
+async def get_cleaned_view(request: Request, current_user: User = Depends(get_current_user)):
     files_info = []
+    user_cleaned_dir = get_user_cleaned_dir(current_user.id)
+    user_reports_dir = get_user_reports_dir(current_user.id)
 
     output_dirs = [
         {
-            "path": "cleaned",
+            "path": user_cleaned_dir,
             "extensions": (".csv", ".xlsx"),
             "source": "Batch Cleaner",
             "download_prefix": "/api/download",
         },
         {
-            "path": "reports",
+            "path": user_reports_dir,
             "extensions": (".md",),
             "source": "Analysis & Report",
             "download_prefix": "/api/analyse/download",
@@ -602,7 +737,7 @@ async def get_cleaned_view(request: Request):
                 continue
 
             source = output_dir["source"]
-            if output_dir["path"] == "cleaned" and fname.startswith("resolved_"):
+            if "cleaned" in output_dir["path"] and fname.startswith("resolved_"):
                 source = "NUBAN Resolver"
 
             fpath = os.path.join(output_dir["path"], fname)
@@ -628,11 +763,11 @@ async def get_cleaned_view(request: Request):
 
 
 @router.get("/api/view/{file_id}", response_class=HTMLResponse)
-async def view_data(request: Request, file_id: str):
+async def view_data(request: Request, file_id: str, current_user: User = Depends(get_current_user)):
     import csv
 
-    state = file_db.get(file_id)
-    if not state or not getattr(state, "cleaned_path", None):
+    state = repo.get(repo.KIND_FILE, file_id)
+    if not state or state.user_id != current_user.id or not state.cleaned_path:
         return "Not available"
 
     rows = []
@@ -654,9 +789,9 @@ async def view_data(request: Request, file_id: str):
 
 
 @router.get("/api/view-skipped/{file_id}", response_class=HTMLResponse)
-async def view_skipped(request: Request, file_id: str):
-    state = file_db.get(file_id)
-    if not state or getattr(state, "skipped_records", None) is None:
+async def view_skipped(request: Request, file_id: str, current_user: User = Depends(get_current_user)):
+    state = repo.get(repo.KIND_FILE, file_id)
+    if not state or state.user_id != current_user.id or getattr(state, "skipped_records", None) is None:
         return "Not available"
 
     if state.preset_name == "custom":
@@ -679,10 +814,14 @@ async def download_single(
 ):
     from fastapi.responses import FileResponse
 
-    file_path = os.path.join("cleaned", filename)
+    # Sanitize filename to prevent path traversal
+    safe_filename = os.path.basename(filename).replace("..", "").replace("/", "_").replace("\\", "_")
+    user_cleaned_dir = get_user_cleaned_dir(current_user.id)
+    file_path = os.path.join(user_cleaned_dir, safe_filename)
+
     if os.path.exists(file_path):
-        log_audit("download", user=current_user, filename=filename, request=request)
-        return FileResponse(path=file_path, filename=filename, media_type="text/csv")
+        log_audit("download", user=current_user, filename=safe_filename, request=request)
+        return FileResponse(path=file_path, filename=safe_filename, media_type="text/csv")
     return HTMLResponse("File not found", status_code=404)
 
 
@@ -707,16 +846,26 @@ async def download_batch(
         request=request,
     )
 
+    user_cleaned_dir = get_user_cleaned_dir(current_user.id)
+    user_reports_dir = get_user_reports_dir(current_user.id)
+
     zip_buffer = BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for selected_file in selected_files:
             folder, fname = os.path.split(selected_file)
-            if folder not in {"cleaned", "reports"} or not fname:
+            # Sanitize
+            safe_fname = os.path.basename(fname).replace("..", "").replace("/", "_").replace("\\", "_")
+            safe_folder = os.path.basename(folder)
+
+            if safe_folder == "cleaned":
+                file_path = os.path.join(user_cleaned_dir, safe_fname)
+            elif safe_folder == "reports":
+                file_path = os.path.join(user_reports_dir, safe_fname)
+            else:
                 continue
 
-            file_path = os.path.join(folder, fname)
             if os.path.exists(file_path):
-                zf.write(file_path, arcname=os.path.join(folder, fname))
+                zf.write(file_path, arcname=os.path.join(safe_folder, safe_fname))
 
     zip_buffer.seek(0)
 

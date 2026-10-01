@@ -9,6 +9,9 @@ os.environ['ADMIN_PASSWORD'] = 'test-only-password-123'
 os.environ['SECRET_KEY'] = 'test-only-secret-key-at-least-32-characters'
 os.environ['DEBUG'] = 'false'
 os.environ['ADMIN_EMAIL'] = 'admin@akirs.local'
+# Disable the startup cleanup job so tests never touch the working directory's
+# uploads/cleaned/reports folders.
+os.environ['CLEANUP_ENABLED'] = 'false'
 
 import pyotp
 import pytest
@@ -89,8 +92,8 @@ def test_account_pages_are_public_and_workspace_requires_login():
         assert '/static/js/auth-core.js' in shell
         assert '/static/js/session.js' in shell
         assert 'id="main-content"' in shell
-        assert 'id="admin-links"' in shell
-        assert '/admin/user/list' in shell and '/admin/audit-log/list' in shell
+        assert 'id="admin-link"' in shell
+        assert 'href="/admin"' in shell
         auth_page = client.get('/auth').text
         assert 'id="login-form"' in auth_page and 'id="setup-form"' in auth_page
         assert 'id="setup-qr"' in auth_page
@@ -181,3 +184,138 @@ def test_htmx_redirect_and_cross_origin_rejection():
             == 204
         )
         assert client.get('/api/auth/me', headers=headers).status_code == 401
+
+
+def test_user_data_isolation():
+    """Verify that users cannot see or access each other's files."""
+    import time as _time
+
+    from app.core import repository as repo
+    from app.core.state import FileState
+
+    with TestClient(app) as client:
+        # Create two users
+        _approved_user('user1@akirs.local')
+        _approved_user('user2@akirs.local')
+
+        _, tokens1 = _full_login(
+            client, {'email': 'user1@akirs.local', 'password': 'UserPass123!'}
+        )
+        _, tokens2 = _full_login(
+            client, {'email': 'user2@akirs.local', 'password': 'UserPass123!'}
+        )
+
+        headers1 = {'Authorization': f"Bearer {tokens1['access_token']}"}
+        headers2 = {'Authorization': f"Bearer {tokens2['access_token']}"}
+
+        db = SessionLocal()
+        try:
+            user1 = db.query(User).filter(User.email == 'user1@akirs.local').first()
+        finally:
+            db.close()
+
+        # User 1 should see no files initially
+        r1 = client.get('/api/view/process', headers=headers1)
+        assert r1.status_code == 200
+
+        # User 2 should also see no files initially
+        r2 = client.get('/api/view/process', headers=headers2)
+        assert r2.status_code == 200
+
+        # Simulate a file owned by user1, persisted through the repository
+        state = FileState()
+        state.user_id = user1.id
+        state.original_filename = 'user1_file.xlsx'
+        state.uploaded_at = _time.time()
+        repo.put(repo.KIND_FILE, state)
+
+        try:
+            # User 1 should see their file
+            r1 = client.get('/api/view/process', headers=headers1)
+            assert 'user1_file.xlsx' in r1.text
+
+            # User 2 should NOT see user1's file
+            r2 = client.get('/api/view/process', headers=headers2)
+            assert 'user1_file.xlsx' not in r2.text
+
+            # User 2 should NOT be able to access user1's file directly
+            r2_view = client.get(f'/api/view/{state.id}', headers=headers2)
+            assert r2_view.text == 'Not available'
+
+            # User 2 should NOT be able to delete user1's file
+            r2_del = client.delete(f'/api/delete/{state.id}', headers=headers2)
+            assert r2_del.status_code == 204  # Returns 204 but doesn't delete
+
+            # The file still exists for its owner
+            assert repo.get(repo.KIND_FILE, state.id) is not None
+        finally:
+            repo.delete(repo.KIND_FILE, state.id)
+
+
+def test_repository_roundtrip_tasks_and_purge():
+    """State survives a JSON round-trip through the database, background tasks
+    are readable/updatable, and the purge job removes stale rows."""
+    import time as _time
+
+    from app.core import repository as repo
+    from app.core.state import FileState
+
+    _approved_user('repo@akirs.local')
+    db = SessionLocal()
+    try:
+        uid = db.query(User).filter(User.email == 'repo@akirs.local').first().id
+    finally:
+        db.close()
+
+    state = FileState()
+    state.user_id = uid
+    state.original_filename = 'roundtrip.xlsx'
+    state.uploaded_at = _time.time()
+    state.status = 'Needs Duplicate Review (2 groups)'
+    state.mapped_fields = {'NUBAN': 'ACCT_NO', 'ACCOUNT_NAME': ['FIRST', 'LAST']}
+    state.field_separators = {'ACCOUNT_NAME': ' '}
+    state.extracted_records = [{'id': 's0r2', 'values': ['a', 'b']}]
+    state.duplicate_groups = [{'nuban': '123', 'records': [{'id': 's0r2'}]}]
+    state.health_report = {'score': 90, 'issues': [{'severity': 'WARNING'}]}
+    repo.put(repo.KIND_FILE, state)
+    try:
+        loaded = repo.get(repo.KIND_FILE, state.id)
+        assert loaded is not None
+        assert loaded.original_filename == 'roundtrip.xlsx'
+        assert loaded.user_id == uid
+        assert loaded.mapped_fields == {'NUBAN': 'ACCT_NO', 'ACCOUNT_NAME': ['FIRST', 'LAST']}
+        assert loaded.field_separators == {'ACCOUNT_NAME': ' '}
+        assert loaded.extracted_records[0]['values'] == ['a', 'b']
+        assert loaded.duplicate_groups[0]['records'][0]['id'] == 's0r2'
+        assert loaded.health_report['score'] == 90
+
+        listed_ids = {s.id for s in repo.list_for_user(repo.KIND_FILE, uid)}
+        assert state.id in listed_ids
+    finally:
+        repo.delete(repo.KIND_FILE, state.id)
+    assert repo.get(repo.KIND_FILE, state.id) is None
+
+    # Background task lifecycle
+    repo.set_task('proc_test', state.id, uid, 'processing', 'Starting...')
+    try:
+        task = repo.get_task('proc_test')
+        assert task == {
+            'status': 'processing',
+            'file_id': state.id,
+            'user_id': uid,
+            'message': 'Starting...',
+        }
+        repo.update_task('proc_test', message='Working...', status='done')
+        task = repo.get_task('proc_test')
+        assert task['status'] == 'done' and task['message'] == 'Working...'
+    finally:
+        repo.purge_older_than(_time.time() + 1)
+
+    # Purge removes items uploaded before the cutoff
+    stale = FileState()
+    stale.user_id = uid
+    stale.original_filename = 'stale.xlsx'
+    stale.uploaded_at = 0.0
+    repo.put(repo.KIND_FILE, stale)
+    assert repo.purge_older_than(_time.time()) >= 1
+    assert repo.get(repo.KIND_FILE, stale.id) is None

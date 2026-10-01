@@ -803,16 +803,19 @@ def save_cleaned_records(
     file_path: str,
     records: List[Dict[str, Any]],
     fields: List[str] = None,
-    output_pattern: str = "{filename}"
+    output_pattern: str = "{filename}",
+    output_dir: str = "cleaned",
 ) -> str:
-    """Save selected/merged records to cleaned directory and return file path."""
+    """Save selected/merged records to the specified output directory and return file path."""
     if fields is None:
         fields = TARGET_FIELDS
-        
-    os.makedirs("cleaned", exist_ok=True)
+
+    os.makedirs(output_dir, exist_ok=True)
     out_filename = resolve_output_filename(file_path, output_pattern)
-    target_file = os.path.join("cleaned", out_filename)
-    
+    # Sanitize to prevent path traversal
+    out_filename = os.path.basename(out_filename).replace("..", "").replace("/", "_").replace("\\", "_")
+    target_file = os.path.join(output_dir, out_filename)
+
     with open(target_file, mode="w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(fields)

@@ -6,10 +6,14 @@ import os
 import time
 from typing import List
 
+from app.core import repository as repo
+from app.core.config import settings
 from app.core.deps import get_current_user
+from app.core.executor import run_cpu
 from app.core.models import User
-from app.core.state import nuban_db, NubanState
+from app.core.state import NubanState, get_user_upload_dir
 from app.services.audit import log_audit
+from app.services.validators import validate_upload
 from app.services.cleaner import load_tabular_rows, find_header_row_and_headers_from_rows
 from app.services.nuban import get_bank_list, process_nuban_resolution
 
@@ -19,11 +23,12 @@ templates = Jinja2Templates(directory="templates")
 DUPLICATE_UPLOAD_WINDOW_SECONDS = 5
 
 @router.get("/api/nuban/view", response_class=HTMLResponse)
-async def get_nuban_view(request: Request):
+async def get_nuban_view(request: Request, current_user: User = Depends(get_current_user)):
+    user_files = repo.list_for_user(repo.KIND_NUBAN, current_user.id)
     return templates.TemplateResponse(
         request=request,
         name="partials/nuban_view.html",
-        context={"request": request, "files": nuban_db.values()},
+        context={"request": request, "files": user_files},
     )
 
 @router.post("/api/nuban/upload", response_class=HTMLResponse)
@@ -32,19 +37,41 @@ async def nuban_upload(
     file: List[UploadFile] = File(...),
     current_user: User = Depends(get_current_user),
 ):
-    os.makedirs("uploads", exist_ok=True)
-    
+    user_upload_dir = get_user_upload_dir(current_user.id)
+
     files_to_process = file if isinstance(file, list) else [file]
     processed_states = []
     now = time.time()
-    
+
     for f in files_to_process:
-        file_bytes = await f.read()
-        file_hash = hashlib.sha256(file_bytes).hexdigest()
-        file_size = len(file_bytes)
-        
+        validate_upload(f)
+
+        # Stream file to disk in chunks
+        safe_filename = os.path.basename(f.filename).replace("..", "").replace("/", "_").replace("\\", "_")
+        temp_path = os.path.join(user_upload_dir, f"nuban_{safe_filename}")
+
+        hasher = hashlib.sha256()
+        file_size = 0
+        max_size_bytes = settings.max_upload_size_mb * 1024 * 1024
+
+        with open(temp_path, "wb") as file_out:
+            while chunk := await f.read(1024 * 1024):  # 1MB chunks
+                file_size += len(chunk)
+                if file_size > max_size_bytes:
+                    file_out.close()
+                    os.remove(temp_path)
+                    from fastapi import HTTPException
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File size exceeds the maximum allowed size of {settings.max_upload_size_mb}MB",
+                    )
+                hasher.update(chunk)
+                file_out.write(chunk)
+
+        file_hash = hasher.hexdigest()
+
         is_duplicate = False
-        for existing_state in nuban_db.values():
+        for existing_state in repo.list_for_user(repo.KIND_NUBAN, current_user.id):
             if (
                 existing_state.original_filename == f.filename
                 and getattr(existing_state, "upload_hash", "") == file_hash
@@ -53,16 +80,13 @@ async def nuban_upload(
                 processed_states.append(existing_state)
                 is_duplicate = True
                 break
-                
+
         if is_duplicate:
+            os.remove(temp_path)
             continue
 
-        temp_path = os.path.join("uploads", f"nuban_{os.path.basename(f.filename)}")
-
-        with open(temp_path, "wb") as file_out:
-            file_out.write(file_bytes)
-
         state = NubanState()
+        state.user_id = current_user.id
         state.original_filename = f.filename
         state.saved_path = temp_path
         state.upload_hash = file_hash
@@ -70,15 +94,15 @@ async def nuban_upload(
         state.uploaded_at = now
 
         try:
-            _, sheet_names = load_tabular_rows(temp_path, "")
+            _, sheet_names = await run_cpu(load_tabular_rows, temp_path, "")
             state.sheet_names = sheet_names
 
             if len(sheet_names) > 1:
                 state.status = "Needs Sheet"
             else:
                 state.selected_sheets = [sheet_names[0]] if sheet_names else [""]
-                rows, _ = load_tabular_rows(temp_path, state.selected_sheets[0])
-                idx, headers = find_header_row_and_headers_from_rows(rows)
+                rows, _ = await run_cpu(load_tabular_rows, temp_path, state.selected_sheets[0])
+                idx, headers = await run_cpu(find_header_row_and_headers_from_rows, rows)
                 state.headers = [h for h in headers if h]
                 state.header_row_idx = idx
                 state.status = "Ready"
@@ -86,7 +110,7 @@ async def nuban_upload(
         except Exception as e:
             state.status = f"Error: {str(e)}"
 
-        nuban_db[state.id] = state
+        repo.put(repo.KIND_NUBAN, state)
         processed_states.append(state)
         log_audit(
             "nuban_upload",
@@ -103,9 +127,9 @@ async def nuban_upload(
     )
 
 @router.post("/api/nuban/config-form/{file_id}", response_class=HTMLResponse)
-async def get_nuban_config_form(request: Request, file_id: str):
-    state = nuban_db.get(file_id)
-    if not state:
+async def get_nuban_config_form(request: Request, file_id: str, current_user: User = Depends(get_current_user)):
+    state = repo.get(repo.KIND_NUBAN, file_id)
+    if not state or state.user_id != current_user.id:
         return "File not found"
         
     banks = await get_bank_list()
@@ -113,7 +137,11 @@ async def get_nuban_config_form(request: Request, file_id: str):
     preview_rows = []
     if state.status != "Needs Sheet" and getattr(state, "header_row_idx", None) is not None:
         try:
-            rows, _ = load_tabular_rows(state.saved_path, state.selected_sheets[0] if state.selected_sheets else "")
+            rows, _ = await run_cpu(
+                load_tabular_rows,
+                state.saved_path,
+                state.selected_sheets[0] if state.selected_sheets else "",
+            )
             preview_rows = rows[state.header_row_idx + 1 : state.header_row_idx + 4]
         except Exception:
             pass
@@ -125,17 +153,17 @@ async def get_nuban_config_form(request: Request, file_id: str):
     )
 
 @router.post("/api/nuban/save-config/{file_id}", response_class=HTMLResponse)
-async def save_nuban_config(request: Request, file_id: str):
-    state = nuban_db.get(file_id)
-    if not state:
+async def save_nuban_config(request: Request, file_id: str, current_user: User = Depends(get_current_user)):
+    state = repo.get(repo.KIND_NUBAN, file_id)
+    if not state or state.user_id != current_user.id:
         return "File not found"
         
     form_data = await request.form()
     
     if form_data.getlist("selected_sheets"):
         state.selected_sheets = form_data.getlist("selected_sheets")
-        rows, _ = load_tabular_rows(state.saved_path, state.selected_sheets[0])
-        idx, headers = find_header_row_and_headers_from_rows(rows)
+        rows, _ = await run_cpu(load_tabular_rows, state.saved_path, state.selected_sheets[0])
+        idx, headers = await run_cpu(find_header_row_and_headers_from_rows, rows)
         state.headers = [h for h in headers if h]
         state.header_row_idx = idx
         state.status = "Ready"
@@ -147,6 +175,7 @@ async def save_nuban_config(request: Request, file_id: str):
         if state.mapped_nuban_col and state.mapped_target_col and state.selected_bank_code:
             state.status = "Configured"
 
+    repo.put(repo.KIND_NUBAN, state)
     return templates.TemplateResponse(
         request=request,
         name="partials/nuban_file_card.html",
@@ -159,8 +188,8 @@ async def resolve_nuban_action(
     file_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    state = nuban_db.get(file_id)
-    if not state:
+    state = repo.get(repo.KIND_NUBAN, file_id)
+    if not state or state.user_id != current_user.id:
         return "File not found"
 
     state.status = "Resolving..."
@@ -171,6 +200,7 @@ async def resolve_nuban_action(
     except Exception as e:
         state.status = f"Failed ({str(e)})"
 
+    repo.put(repo.KIND_NUBAN, state)
     log_audit(
         "nuban_resolve",
         user=current_user,
@@ -191,9 +221,20 @@ async def delete_nuban_file(
     file_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    state = nuban_db.get(file_id)
-    if state is not None:
-        del nuban_db[file_id]
+    state = repo.get(repo.KIND_NUBAN, file_id)
+    if state is not None and state.user_id == current_user.id:
+        # Delete physical files
+        if state.saved_path and os.path.exists(state.saved_path):
+            try:
+                os.remove(state.saved_path)
+            except OSError:
+                pass
+        if state.resolved_path and os.path.exists(state.resolved_path):
+            try:
+                os.remove(state.resolved_path)
+            except OSError:
+                pass
+        repo.delete(repo.KIND_NUBAN, file_id)
         log_audit(
             "nuban_delete",
             user=current_user,
