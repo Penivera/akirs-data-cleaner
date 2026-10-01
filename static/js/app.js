@@ -164,6 +164,47 @@ function initDynamicFormEnhancements(root = document) {
     initUploadZone(root);
     initMappingHighlights(root);
     initMinAmountFilter(root);
+    initProcessingPolling(root);
+}
+
+function initProcessingPolling(root = document) {
+    // Find all file cards that are in "Processing..." state
+    const processingCards = root.querySelectorAll('[data-processing-task]');
+    processingCards.forEach((card) => {
+        if (card.dataset.pollingBound === 'true') {
+            return;
+        }
+        card.dataset.pollingBound = 'true';
+
+        const taskId = card.dataset.processingTask;
+        const fileId = card.dataset.fileId;
+        if (!taskId || !fileId) {
+            return;
+        }
+
+        const pollInterval = setInterval(async () => {
+            try {
+                const response = await fetch(`/api/task-status/${taskId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`,
+                    },
+                });
+                if (!response.ok) {
+                    clearInterval(pollInterval);
+                    return;
+                }
+                const task = await response.json();
+
+                if (task.status === 'done' || task.status === 'failed') {
+                    clearInterval(pollInterval);
+                    // Refresh the file card via htmx
+                    htmx.trigger(card, 'refreshCard');
+                }
+            } catch (e) {
+                clearInterval(pollInterval);
+            }
+        }, 2000); // Poll every 2 seconds
+    });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
