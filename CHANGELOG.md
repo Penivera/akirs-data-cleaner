@@ -3,6 +3,145 @@
 All notable changes to the AKIRS Data Toolkit are documented here.
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] - 2026-10-02
+
+Production-hardening release: per-user data isolation, automatic cleanup,
+database-backed state for multi-worker deployments, and upload/processing
+performance work.
+
+### Added
+
+#### User data isolation
+- `user_id` on `FileState`, `AnalysisState`, `NubanState`, and `IntelSyncState`.
+- Per-user storage directories created on demand:
+  `get_user_upload_dir()` → `uploads/{user_id}/`,
+  `get_user_cleaned_dir()` → `cleaned/{user_id}/`,
+  `get_user_reports_dir()` → `reports/{user_id}/` (`app/core/state.py`).
+- Every list/upload/process/resolve/delete/view/download endpoint now filters by
+  `current_user.id`; a file owned by another user reads as "File not found".
+- Downloads and the batch ZIP are resolved inside the caller's own directories
+  (`/api/download/{filename}`, `/api/analyse/download/{filename}`,
+  `/api/analyse/view-report/{filename}`, `/api/download-batch`).
+
+#### Upload validation (`app/services/validators.py`)
+- `validate_upload()` enforces an extension allow-list (`.xlsx`, `.xls`, `.csv`)
+  and rejects oversized uploads with HTTP 413 before the body is read.
+- New settings: `MAX_UPLOAD_SIZE_MB` (default 50), `ALLOWED_EXTENSIONS`.
+
+#### Automatic cleanup (`app/services/cleanup.py`)
+- `cleanup_stale_files()` deletes files older than `CLEANUP_MAX_AGE_HOURS`
+  (default 24) from `uploads/`, `cleaned/`, and `reports/`, removes empty
+  per-user directories, and purges expired work-item/task rows.
+- Scheduled with APScheduler: runs once at startup and then every
+  `CLEANUP_INTERVAL_HOURS` (default 24) via the FastAPI lifespan.
+- New settings: `CLEANUP_ENABLED` (default true), `CLEANUP_MAX_AGE_HOURS`,
+  `CLEANUP_INTERVAL_HOURS`; `APScheduler` added as a dependency.
+
+#### Database-backed state (multi-worker)
+- New tables `work_items` (JSON blob plus indexed `kind`, `user_id`,
+  `uploaded_at`, `status`) and `tasks` (`app/core/models.py`).
+- New repository module `app/core/repository.py`:
+  `put` / `get` / `list_for_user` / `delete`, task helpers
+  (`set_task`, `update_task`, `get_task`), and `purge_older_than`.
+  State objects are serialized to JSON (`state.__dict__`) and reconstructed
+  into their original class.
+- SQLite engine now enables `journal_mode=WAL`, `busy_timeout=5000`,
+  `synchronous=NORMAL`, and `foreign_keys=ON` (`app/core/database.py`).
+- This replaces the in-memory dictionaries and `uploads/state_database.pkl`
+  pickle, so every Gunicorn worker sees the same state.
+
+#### Processing performance
+- `app/core/executor.py`: a dedicated, bounded `ThreadPoolExecutor` with an
+  async `run_cpu()` helper. All CPU-bound work (Excel/CSV parsing, record
+  extraction, duplicate detection, CSV writing) runs off the event loop without
+  starving FastAPI's synchronous-dependency pool. New setting
+  `PROCESSING_THREADS` (default 2).
+- Uploads stream to disk in 1 MB chunks with the size cap enforced mid-stream,
+  so memory use stays flat regardless of file size.
+- File processing runs as a FastAPI background task: the request returns
+  immediately with a `Processing...` status; a new
+  `GET /api/task-status/{task_id}` endpoint is polled by the UI
+  (`static/js/app.js`, `templates/partials/file_card.html`) until completion.
+
+#### Authentication
+- `MfaChallengeResponse` now includes `recovery_codes_available`, so the UI can
+  hide the recovery-code path when a user has none.
+
+#### Tests
+- `test_user_data_isolation` — a file owned by one user is invisible and
+  inaccessible to another, and cannot be deleted by them.
+- `test_repository_roundtrip_tasks_and_purge` — JSON round-trip of nested state
+  (mapped-field lists, records, duplicate groups, health report), background
+  task lifecycle, and the purge job.
+
+### Changed
+- `state.py` no longer holds global dictionaries; persistence is delegated to the
+  repository. `main.py` starts the cleanup scheduler and shuts down the CPU pool
+  in its lifespan.
+- `save_cleaned_records()` and the analyser report functions accept an
+  `output_dir`; `process_nuban_resolution()` writes to the user's cleaned folder.
+- `Dockerfile` defaults to **2 Gunicorn workers** and **no longer uses
+  `--preload`** (the master would open DB connections before forking, which is
+  unsafe to share across worker processes with SQLite).
+- README and `docs/architecture.md` / `docs/system-design.md` describe
+  DB-backed state, the per-user directory layout, and the multi-worker
+  deployment requirements. `docs/auth-api.md` documents
+  `recovery_codes_available`.
+- Test environment sets `CLEANUP_ENABLED=false` so the startup job never touches
+  the working directory.
+
+### Fixed
+- **Empty recovery-code screen.** With `RECOVERY_CODE_COUNT=0`, enabling 2FA
+  returned an empty list but the UI still displayed "Save your recovery codes".
+  The screen is now skipped and the "use a recovery code" toggle hidden
+  (including after a page reload, via a session flag).
+- **Stale admin-link assertion.** The workspace test asserted a removed
+  `id="admin-links"` element; corrected to the current `id="admin-link"` markup
+  (a pre-existing failure introduced by an earlier merge).
+- **Cleanup vs. tests.** Running the test suite started the real cleanup job
+  against the working tree, deleting tracked files. Cleanup is now disabled in
+  tests.
+
+### Security
+- Filenames are sanitized against path traversal on upload, output, and
+  download paths.
+- Deleting a file/analysis/NUBAN/intelligence item now removes its physical
+  files from disk.
+- The `pickle` state file is removed entirely, eliminating a deserialization
+  risk; state is now stored as JSON in the database.
+- Per-user isolation is enforced server-side on every endpoint.
+
+### Performance
+- Flat-memory streamed uploads (1 MB chunks).
+- Non-blocking request path via background processing and status polling.
+- CPU work offloaded via `run_cpu()`; a separate pool keeps auth/DB dependencies
+  responsive during large-file processing.
+- SQLite WAL allows concurrent readers alongside the single writer.
+
+### Removed
+- `app/core/state.py`: `file_db`, `analysis_db`, `nuban_db`, `intelsync_db`,
+  `task_db`, `save_all_states()`, `load_all_states()`, `DB_FILE`, and the
+  `pickle` import. `uploads/state_database.pkl` is no longer read or written.
+
+### Dependencies
+- Added `APScheduler==3.10.4` (with `pytz`, `six`, `tzlocal`) to
+  `pyproject.toml` and `uv.lock`, and to `requirements.txt` for the legacy pip
+  workflow.
+
+### Deployment / migration notes
+- State now lives in the database. For SQLite, `data/app.db` **must** reside on a
+  persistent volume shared by all workers and across restarts. Set
+  `DATABASE_URL` to PostgreSQL for multi-container/multi-host deployments.
+- Default worker count is 2 (`WORKERS`, via the `Dockerfile`). Each worker opens
+  its own database connections.
+- The previous `uploads/state_database.pkl` is obsolete and can be deleted.
+
+### Verification
+- All 7 commits import the application successfully (`python -c "import main"`).
+- `pytest` — 5/5 passing at `HEAD`.
+- Confirmed cross-process state sharing: a value written by one OS process is
+  readable by a second independent process, with `journal_mode=wal` active.
+
 ## [Unreleased] - 2026-09-21
 
 ### Added
