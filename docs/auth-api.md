@@ -4,10 +4,10 @@
 > approval, mandatory TOTP two-factor authentication, and the Starlette Admin
 > dashboard.
 
-> Public account pages are served at `/auth` (and `/auth/setup`, `/auth/verify`,
-> `/auth/mfa`, `/auth/pending`); see [Account pages](auth-pages.md). The browser
-> flow is being updated for mandatory 2FA — login now returns an MFA challenge
-> rather than tokens, and the app is Bearer-only (no auth cookie).
+> Public account pages are served at `/auth` and its sub-routes; see
+> [Account pages](auth-pages.md). The mandatory 2FA browser flow is implemented.
+> Login returns an MFA challenge rather than tokens, and the application uses
+> Bearer auth (no application auth cookie).
 
 ## Overview
 
@@ -15,7 +15,7 @@
 |------|-----------|------|
 | Application API/UI | Stateless JWT in `Authorization: Bearer <token>` | `get_current_user` dependency |
 | Signup | `POST /api/auth/signup` → pending admin approval | none |
-| Login | Password → MFA challenge → TOTP/recovery code → tokens | none until tokens issued |
+| Login | Password → MFA challenge → TOTP code → tokens | none until tokens issued |
 | Admin UI (`/admin`) | Session cookie (starlette-admin), superusers only | `AdminAuthProvider` |
 | Storage | SQLAlchemy — SQLite (`data/app.db`) by default | — |
 
@@ -36,13 +36,13 @@ signup ──▶ pending approval ──▶ (admin approves) ──▶ active
                                                       ▼
                               MFA setup (first login) ──▶ enable ──▶ tokens
                                                       │
-                              later logins: TOTP code or recovery code ──▶ tokens
+                              later logins: TOTP code ──▶ tokens
 ```
 
 - New accounts are created `is_approved = false` and cannot log in.
 - An administrator approves/rejects them from `/admin` (or via the actions API).
 - 2FA is **mandatory**: after approval, the first login forces TOTP setup;
-  subsequent logins require a TOTP (or one-time recovery) code.
+  subsequent logins require a TOTP code.
 
 ---
 
@@ -110,8 +110,7 @@ Authorization: Bearer <access_token>
 }
 ```
 
-`MfaTokenResponse` is the same plus `recovery_codes` (only populated by
-`/2fa/enable`).
+Both MFA endpoints return the standard token response after successful TOTP verification.
 
 ---
 
@@ -193,7 +192,7 @@ as `pending_totp_secret` until enabled.
 
 ### `POST /api/auth/2fa/enable`
 
-Confirm setup with a code, enable 2FA, and receive tokens plus recovery codes.
+Confirm setup with a code, enable 2FA, and receive tokens.
 
 **Auth:** none (requires `challenge_token` from login)
 
@@ -207,17 +206,14 @@ Confirm setup with a code, enable 2FA, and receive tokens plus recovery codes.
 
 | Status | Meaning |
 |--------|---------|
-| `200` | `MfaTokenResponse` with `recovery_codes` (10 codes, shown once) |
+| `200` | `TokenResponse` |
 | `400` | Invalid verification code, or setup not started |
-
-Store the recovery codes securely; they are hashed server-side and cannot be
-retrieved again.
 
 ---
 
 ### `POST /api/auth/2fa/verify`
 
-Complete login with a TOTP code or a one-time recovery code.
+Complete login with a TOTP code.
 
 **Auth:** none (requires `challenge_token` from login)
 
@@ -227,21 +223,13 @@ Complete login with a TOTP code or a one-time recovery code.
 { "challenge_token": "eyJhbGciOiJIUzI1NiIs...", "code": "123456" }
 ```
 
-or
-
-```json
-{ "challenge_token": "eyJhbGciOiJIUzI1NiIs...", "recovery_code": "a1b2c-3d4e5" }
-```
-
 **Responses**
 
 | Status | Meaning |
 |--------|---------|
-| `200` | `MfaTokenResponse` (no recovery codes) |
-| `400` | Invalid code / recovery code already used / 2FA not configured |
+| `200` | `TokenResponse` |
+| `400` | Invalid code / 2FA not configured |
 | `401` | Invalid or expired challenge token |
-
-Recovery codes are single-use; reusing one returns `400`.
 
 ---
 
@@ -285,7 +273,7 @@ Returns `204`.
   (including `is_approved`, `is_superuser`, `totp_enabled`). Bulk actions:
   - **Approve selected** — sets `is_approved = true`, `is_active = true`.
   - **Reject / disable selected** — sets both false and bumps `token_version`.
-  - **Reset 2FA** — clears the TOTP secret and recovery codes and bumps
+  - **Reset 2FA** — clears the TOTP secret and bumps
     `token_version`, forcing the user to set up 2FA again.
 - **Audit log** view — read-only, searchable/filterable history of actions by
   **all users**, including `signup`, `login`, `2fa_*`, uploads, processing,
@@ -321,7 +309,6 @@ All of the following require `Authorization: Bearer <access_token>`.
 | `ADMIN_SESSION_HTTPS_ONLY` | `false` | Mark admin cookie HTTPS-only. |
 | `TOTP_ISSUER` | `AKIRS Data Toolkit` | Issuer shown in authenticator apps. |
 | `MFA_CHALLENGE_EXPIRE_MINUTES` | `10` | MFA challenge token lifetime. |
-| `RECOVERY_CODE_COUNT` | `10` | Recovery codes issued on 2FA enable. |
 
 The superuser is seeded **only when the users table is empty**. Delete
 `data/app.db` to re-seed after changing `ADMIN_EMAIL` / `ADMIN_PASSWORD`.

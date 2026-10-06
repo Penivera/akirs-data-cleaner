@@ -1,5 +1,19 @@
 # Attachment B: Data Flow Diagram
 
+## Authentication and Workspace Access
+
+Account pages at `/auth` are public. Signup creates an account awaiting
+administrator approval. After approval, login returns a short-lived challenge;
+the user must enroll in TOTP on first login and provide a TOTP code on later
+logins. Successful MFA issues the access and refresh
+tokens. Feature API and HTMX requests send the access token as a Bearer header;
+the browser refreshes expired tokens and uses authenticated fetch for downloads.
+The `/app` route serves a data-free shell, while `/admin` uses a separate
+superuser-only session.
+
+All workflow endpoints shown below therefore require an authenticated Bearer
+token. The auth endpoints and static assets are public.
+
 ## End-to-End Processing Pipeline
 
 ### Main Cleaning Pipeline

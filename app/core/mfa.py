@@ -1,7 +1,3 @@
-import hashlib
-import secrets
-from typing import List
-
 import pyotp
 import segno
 
@@ -34,19 +30,3 @@ def verify_totp(secret: str, code: str, valid_window: int = 1) -> bool:
     except Exception:
         return False
 
-
-def generate_recovery_codes(count: int | None = None) -> List[str]:
-    count = count or settings.recovery_code_count
-    codes = []
-    for _ in range(count):
-        raw = secrets.token_hex(5)
-        codes.append(f"{raw[:5]}-{raw[5:10]}")
-    return codes
-
-
-def normalize_recovery_code(code: str) -> str:
-    return str(code).strip().lower().replace(" ", "")
-
-
-def hash_recovery_code(code: str) -> str:
-    return hashlib.sha256(normalize_recovery_code(code).encode("utf-8")).hexdigest()

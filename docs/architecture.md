@@ -4,7 +4,7 @@
 
 The **AKIRS (Akwa Ibom State Internal Revenue Service) Data Cleaner** is a web-based data ingestion, cleansing, deduplication, and analytics platform built for tax administration workflows. It processes messy bank extracts, retail tax filings, and taxpayer intelligence records into clean, standardized datasets.
 
-**Tech Stack:** FastAPI · Jinja2 · HTMX · openpyxl · httpx · Pydantic Settings
+**Tech Stack:** FastAPI · SQLAlchemy · Starlette Admin · Jinja2 · HTMX · vanilla JavaScript · openpyxl · httpx · Pydantic Settings
 
 ---
 
@@ -12,12 +12,18 @@ The **AKIRS (Akwa Ibom State Internal Revenue Service) Data Cleaner** is a web-b
 
 ![System Context](01_system_context.png)
 
-The system follows a **three-tier architecture**:
-- **Client Tier** — HTMX-powered browser UI with Jinja2 server-side templates, enabling dynamic partial page updates without a JavaScript framework.
-- **Application Tier** — FastAPI backend split into 4 API routers and 4 service modules, with a shared core for configuration and state.
-- **Storage/Integration Tier** — Local file system for uploads, cleaned outputs, and reports; plus 3 external REST APIs (Paystack, Flutterwave, AKIRS TMS).
+The system has a browser tier, FastAPI application tier, and storage/integration
+tier. HTMX loads server-rendered feature views; JavaScript handles account
+authentication, session refresh, and protected downloads. SQLAlchemy stores
+users, refresh tokens, and audit events in SQLite by default
+(PostgreSQL can be configured). Batch workflow state is separately held in
+memory and persisted to `uploads/state_database.pkl`; uploaded files and outputs
+are stored on disk.
 
-> **Note:** There is **no SQL database**. All application state is held in-memory via Python dictionaries and persisted to disk using `pickle` at `uploads/state_database.pkl` with atomic file replacement.
+All application feature routes require an access JWT in the Bearer header.
+Signup, login, MFA challenge endpoints, static assets, and public account pages
+are available without an access token. `/admin` has its own Starlette Admin
+session authentication and is restricted to superusers.
 
 ---
 
@@ -34,7 +40,9 @@ The application is organized into **4 independent feature modules**, each with i
 | **NUBAN Resolver** | 6 | 164 | `NubanState` | `cleaned/resolved_*.csv` |
 | **DB Sync** | 5 | 163 | `IntelSyncState` | `cleaned/CLEANED_UNIQUE_*.csv` |
 
-All modules share the core `cleaner.py` service for file loading and header detection, and are unified by `state.py` for persistence and `config.py` for environment settings.
+All data workflows share `cleaner.py` for tabular loading and header detection.
+Authentication and admin persistence use `database.py` and `models.py`; workflow
+state uses `state.py`; environment settings are in `config.py`.
 
 ---
 
@@ -166,7 +174,21 @@ akirs/
 
 ---
 
-## 10. Environment Configuration
+## 10. Authentication and Admin
+
+1. A user signs up at `/auth`; the account is pending until a superuser approves
+   it in `/admin`.
+2. Login checks the password and returns a short-lived MFA challenge. The first
+   successful login requires TOTP enrollment; subsequent logins require a TOTP
+   using a TOTP authenticator code.
+3. Only after MFA succeeds does the server issue access and refresh JWTs. The
+   browser stores tokens client-side, adds the access token to HTMX/fetch calls,
+   refreshes expired access tokens, and sends protected downloads through
+   authenticated fetch requests.
+4. Administrators can approve or disable accounts and reset 2FA. These actions,
+   along with application operations, are recorded in the audit log.
+
+## 11. Environment Configuration
 
 | Variable | Required For | Description |
 |---|---|---|

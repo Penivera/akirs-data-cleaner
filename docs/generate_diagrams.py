@@ -693,7 +693,7 @@ def _uml_class(ax, x, y, title, fields, color=NAVY, width=3.0):
 def gen_07_state_model():
     fig, ax = _setup((16, 12))
     _page_header(ax, "State Model",
-                 "Four state classes stored in-memory and serialized to pickle. No SQL database.",
+                 "Four workflow state classes use memory + pickle; auth and audit data use SQLAlchemy.",
                  7, (0, 16), (0, 12))
     _footer(ax, (0, 16), (0, 12))
 

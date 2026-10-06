@@ -80,7 +80,7 @@ def _full_login(client, credentials):
 
 def test_account_pages_are_public_and_workspace_requires_login():
     with TestClient(app) as client:
-        for path in ['/auth', '/auth/verify', '/auth/setup', '/auth/pending', '/auth/mfa', '/auth/recovery']:
+        for path in ['/auth', '/auth/verify', '/auth/setup', '/auth/pending', '/auth/mfa']:
             response = client.get(path)
             assert response.status_code == 200
             assert 'Cache-Control' in response.headers
@@ -132,7 +132,7 @@ def test_signup_then_admin_approval_then_mandatory_2fa():
         )
         assert challenge['setup_required'] is True
         secret, tokens = _complete_setup(client, challenge['challenge_token'])
-        assert len(tokens['recovery_codes']) == 10
+        assert 'recovery_codes' not in tokens
 
         headers = {'Authorization': f"Bearer {tokens['access_token']}"}
         assert client.get('/api/auth/me', headers=headers).status_code == 200

@@ -1,6 +1,5 @@
-import secrets
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Optional
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -11,14 +10,12 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.deps import get_current_user, get_db
 from app.core.mfa import (
-    generate_recovery_codes,
     generate_totp_secret,
-    hash_recovery_code,
     provisioning_uri,
     qr_svg_data_uri,
     verify_totp,
 )
-from app.core.models import RecoveryCode, RefreshToken, User
+from app.core.models import RefreshToken, User
 from app.core.security import (
     MFA_CHALLENGE_TYPE,
     MFA_SETUP_TYPE,
@@ -97,8 +94,7 @@ class MfaEnableRequest(BaseModel):
 
 class MfaVerifyRequest(BaseModel):
     challenge_token: str
-    code: Optional[str] = None
-    recovery_code: Optional[str] = None
+    code: str
 
 
 class RefreshRequest(BaseModel):
@@ -130,10 +126,6 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     expires_in: int
     user: UserOut
-
-
-class MfaTokenResponse(TokenResponse):
-    recovery_codes: Optional[List[str]] = None
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -195,16 +187,6 @@ def _load_challenge(db: Session, token: str, expected_type: str) -> User:
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid challenge token"
         )
     return user
-
-
-def _consume_recovery_code(db: Session, user: User, code: str) -> bool:
-    candidate = hash_recovery_code(code)
-    for record in user.recovery_codes:
-        if not record.used and secrets.compare_digest(record.code_hash, candidate):
-            record.used = True
-            db.commit()
-            return True
-    return False
 
 
 @router.post("/signup", status_code=status.HTTP_201_CREATED)
@@ -313,7 +295,7 @@ def setup_2fa(
     )
 
 
-@router.post("/2fa/enable", response_model=MfaTokenResponse)
+@router.post("/2fa/enable", response_model=TokenResponse)
 def enable_2fa(payload: MfaEnableRequest, request: Request, db: Session = Depends(get_db)):
     user = _load_challenge(db, payload.challenge_token, MFA_SETUP_TYPE)
 
@@ -335,19 +317,15 @@ def enable_2fa(payload: MfaEnableRequest, request: Request, db: Session = Depend
     user.pending_totp_secret = None
     user.totp_enabled = True
 
-    db.query(RecoveryCode).filter(RecoveryCode.user_id == user.id).delete()
-    recovery_codes = generate_recovery_codes()
-    for code in recovery_codes:
-        db.add(RecoveryCode(user_id=user.id, code_hash=hash_recovery_code(code)))
     db.commit()
     db.refresh(user)
 
     tokens = _issue_tokens(db, user)
     log_audit("2fa_enabled", user=user, status="success", request=request)
-    return MfaTokenResponse(**tokens.model_dump(), recovery_codes=recovery_codes)
+    return tokens
 
 
-@router.post("/2fa/verify", response_model=MfaTokenResponse)
+@router.post("/2fa/verify", response_model=TokenResponse)
 def verify_2fa(payload: MfaVerifyRequest, request: Request, db: Session = Depends(get_db)):
     user = _load_challenge(db, payload.challenge_token, MFA_CHALLENGE_TYPE)
 
@@ -357,17 +335,7 @@ def verify_2fa(payload: MfaVerifyRequest, request: Request, db: Session = Depend
             detail="Two-factor authentication is not configured",
         )
 
-    verified = False
-    used_recovery = False
-    if payload.code and verify_totp(user.totp_secret, payload.code):
-        verified = True
-    elif payload.recovery_code and _consume_recovery_code(
-        db, user, payload.recovery_code
-    ):
-        verified = True
-        used_recovery = True
-
-    if not verified:
+    if not verify_totp(user.totp_secret, payload.code):
         log_audit(
             "2fa_verify", user=user, status="failed", detail="Invalid code", request=request
         )
@@ -380,10 +348,10 @@ def verify_2fa(payload: MfaVerifyRequest, request: Request, db: Session = Depend
         "login",
         user=user,
         status="success",
-        detail="recovery_code" if used_recovery else "totp",
+        detail="totp",
         request=request,
     )
-    return MfaTokenResponse(**tokens.model_dump())
+    return tokens
 
 
 @router.post("/refresh", response_model=TokenResponse)

@@ -23,7 +23,6 @@ def _asset_version(path: str) -> str:
 @router.get('/auth/setup', response_class=HTMLResponse)
 @router.get('/auth/pending', response_class=HTMLResponse)
 @router.get('/auth/mfa', response_class=HTMLResponse)
-@router.get('/auth/recovery', response_class=HTMLResponse)
 def auth_page(request: Request):
     versions = {
         'auth_js': _asset_version('static/js/auth.js'),

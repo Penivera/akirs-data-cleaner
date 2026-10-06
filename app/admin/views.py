@@ -15,7 +15,7 @@ from starlette_admin import (
 from starlette_admin.contrib.sqla import ModelView
 from starlette_admin.exceptions import ActionFailed, FormValidationError
 
-from app.core.models import AuditLog, RecoveryCode, User
+from app.core.models import AuditLog, User
 from app.core.security import hash_password
 from app.services.audit import log_audit
 
@@ -212,9 +212,6 @@ class UserView(ModelView):
             user.totp_secret = None
             user.pending_totp_secret = None
             user.token_version += 1
-            session.query(RecoveryCode).filter(
-                RecoveryCode.user_id == user.id
-            ).delete()
         session.commit()
         for user in users:
             log_audit(

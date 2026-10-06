@@ -1,111 +1,86 @@
-# AKIRS Batch File Cleaner
+# AKIRS Data Toolkit
 
-The `akirs-data-cleaner` project is designed to automate the cleaning, deduplication, and standardization of customer data from Excel batch files into well-formatted CSV files. It ensures that critical identity data points, specifically NUBAN, Taxpayer ID (TIN), BVN, and contact information, are properly mapped, verified, and filtered.
-
-The system is used to generate clean datasets of newly opened accounts and tax intelligence data, ready for ingestion into government or analytical databases.
+AKIRS Data Toolkit is a browser-based application for cleaning batch customer
+files, reviewing duplicates, analysing transactions, resolving Nigerian bank
+accounts, and checking taxpayer intelligence against the AKIRS TMS database.
+The interface uses FastAPI, Jinja templates, HTMX, and JavaScript.
 
 ## Features
 
-- **Automated Column Mapping**: Detects expected column headers (e.g., TAXPAYER_ID, NUBAN, PHONE NO 1) even with varying header names across different spreadsheets.
-- **Branch Filtering**: Scans branch or location columns to filter out specific records (e.g., extracting only "UYO" branch records).
-- **Duplicate Handling**: Identifies duplicates based on primary identifiers like the NUBAN. It resolves these conflicts by either dropping subsequent duplicates, manually selecting records, or merging data fields.
-- **Data Validation**: Enforces minimum length constraints and structural logic on TIN and NUBAN fields to drop invalid entries.
-- **Standardized Export**: Converts the clean and grouped datasets into consolidated CSV files.
+- **Batch cleaning:** upload CSV or Excel workbooks, select worksheets, inspect a
+  pre-flight file health report, detect headers, map fields automatically, and
+  edit mappings. Retail, intelligence, and custom field presets are available.
+- **Validation and branch filtering:** validate taxpayer IDs, BVNs, and NUBANs;
+  select branches; inspect skipped rows; and export cleaned CSV files.
+- **Duplicate review:** group duplicate records by a selected primary key or use
+  similarity matching for intelligence records. Review groups and merge or pick
+  records before export.
+- **Optional live database checks:** compare uploaded records with AKIRS TMS,
+  configure the query and target fields, optionally use fuzzy matching, then
+  review matches and choose how to handle them.
+- **Transaction analysis:** configure identity, metric, currency, and transaction
+  flow fields; filter inflows/outflows and minimum amounts; keep selected source
+  columns; concatenate name fields in a chosen order; and optionally aggregate
+  cumulative transactions by NUBAN. Generate and download reports.
+- **NUBAN account resolution:** map account and destination columns, select a
+  bank, resolve account names through Paystack with Flutterwave fallback, and
+  download the results.
+- **Intelligence database sync:** map intelligence fields, check records against
+  the live database, review matching options, and export unique records.
+- **Account security:** self-service signup with administrator approval,
+  mandatory TOTP two-factor authentication, JWT access
+  and rotating refresh tokens, and individual or all-device logout.
+- **Administrator tools:** manage and approve users, disable accounts, reset
+  2FA, and review audit events through the superuser-only `/admin` dashboard.
+- **Cookie-free application auth:** the workspace sends JWTs as Bearer headers,
+  refreshes sessions, and uses authenticated downloads. The admin dashboard has
+  its own session cookie.
 
-## Project Structure
+## Run locally
 
-The tool offers both standalone Python data-migration scripts and a fully interactive web application.
-
-### Web Application
-
-A robust FastAPI web application provides a browser-based UI for users to upload files, preview mapping rules, resolve duplicates securely, and download files visually.
-
-- **`bot.py`**: The main entry point to start the FastAPI server via Uvicorn.
-- **`app/`**: Contains the backend code.
-  - **`app/main.py`**: The FastAPI application initialization and routing setup.
-  - **`app/api/`**: The FastAPI route handlers (`routes.py` main UI routes and `analytics.py` for API/stats).
-  - **`app/services/`**: The core business logic.
-    - `cleaner.py`: Algorithms to extract rows, heuristic header detection, data mapping, duplicate resolution, and writing to CSV.
-    - `analyser.py`: Generates summarized intelligence metrics.
-- **`static/` & `templates/`**: The frontend UI dependencies (CSS/JS) and HTML templates used by the FastAPI backend to render the dashboard interface.
-- **`uploads/` / `cleaned/`**: Server directories to temporarily hold user uploads and outputs.
-
-### Standalone Migration Scripts
-
-These scripts are used for quick, hardcoded, one-off cleanup operations against specific internal reporting formats without needing the GUI.
-
-- **`migrate_data.py`**, **`migrate2.py`**, **`migrate3.py`**: Standalone scripts tailored to iteratively migrate specific batch formats like `"OCT AKWA IBOM NEW CUSTOMERS Q3 2025.xlsx"` and `"Newly Opened Accts UYO OCTOBER 2024.xlsx"`. By slightly modifying their configurations or header mapping indices, they target unique anomalies in individual datasets.
-
-## How to Run
-
-### 1. Running the Interactive Web App
-This is the recommended way to process new batch files.
+Use Python 3. The project dependencies are listed in `requirements.txt`.
 
 ```bash
-# Install requirements (assumes standard dependencies like fastapi, uvicorn, openpyxl)
-pip install fastapi uvicorn openpyxl python-multipart
-
-# Start the web interface
-python bot.py
+python -m venv .venv
+# Activate the environment, then:
+pip install -r requirements.txt
+uvicorn main:app --host 127.0.0.1 --port 8000
 ```
-After starting the server, go to `http://localhost:8080/` via your web browser to upload Excel files and conduct the cleaning process.
 
-### 2. Using the Standalone Scripts
-If you want to manually run the migration with the hardcoded mappings (make sure the Excel files exist locally or adjust paths as needed in the script):
-```bash
-python migrate_data.py
-```
-This will generate and log the cleanup process straight to your terminal and save the output CSV in the same parent or `cleaned/` folder.
+Open `http://127.0.0.1:8000/auth` to sign in or create an account. New accounts
+remain pending until an administrator approves them. Set the environment
+variables described in [deploy.md](deploy.md) before deploying. In particular,
+configure a strong `SECRET_KEY`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD`. The app
+creates the first administrator at startup; if `ADMIN_PASSWORD` is omitted, a
+random password is written to the application log.
 
-## Authentication & Admin
+## Application pages
 
-The application is protected by JWT authentication and ships with a
-[Starlette Admin](https://jowilf.github.io/starlette-admin/) dashboard.
+- `/auth` — login and signup; related public routes include `/auth/setup`,
+  `/auth/mfa`, and `/auth/pending`.
+- `/app` — authenticated workspace shell.
+- `/admin` — administrator dashboard for approved superusers.
+- `/docs` — FastAPI OpenAPI documentation.
 
-### How it works
+## Configuration and storage
 
-- **Signup**: `POST /api/auth/signup` creates an account that must be approved by an
-  administrator before it can sign in.
-- **App API/UI**: stateless JWT sent in the `Authorization: Bearer <token>` header.
-  Access tokens expire after `ACCESS_TOKEN_EXPIRE_MINUTES` (default 30); refresh
-  tokens after `REFRESH_TOKEN_EXPIRE_DAYS` (default 7). No cookies are used.
-- **Two-factor authentication (mandatory)**: after approval, the first login forces
-  TOTP setup with an authenticator app; later logins require a TOTP code (or a
-  one-time recovery code). Tokens are only issued after the second factor passes.
-- **Admin (`/admin`)**: Starlette Admin uses its own session cookie and is
-  restricted to users with `is_superuser = True`. Admins approve/reject signups,
-  reset 2FA, and review the audit log of actions by all users.
-- **Storage**: SQLAlchemy. SQLite (`data/app.db`) by default; set `DATABASE_URL`
-  to a PostgreSQL URL to switch.
+Authentication data uses SQLAlchemy, with SQLite at `data/app.db` by default;
+set `DATABASE_URL` to use PostgreSQL. Uploaded files and generated artifacts are
+stored on the server. Workflow state is held in memory and persisted to
+`uploads/state_database.pkl`; use a persistent, access-controlled data directory
+in deployment. External features require their relevant credentials, such as
+Paystack/Flutterwave keys for NUBAN resolution and the intelligence token and URL
+for AKIRS TMS checks. See [deploy.md](deploy.md) and `app/core/config.py` for
+configuration names.
 
-### Auth endpoints
+## Documentation
 
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/api/auth/signup` | `{ "email", "password", "full_name" }` → pending approval |
-| `POST` | `/api/auth/login` | `{ "email", "password" }` → MFA challenge |
-| `POST` | `/api/auth/2fa/setup` | `{ "challenge_token" }` → TOTP secret + otpauth URI |
-| `POST` | `/api/auth/2fa/enable` | `{ "challenge_token", "code" }` → tokens + recovery codes |
-| `POST` | `/api/auth/2fa/verify` | `{ "challenge_token", "code"\|"recovery_code" }` → tokens |
-| `POST` | `/api/auth/refresh` | `{ "refresh_token" }` → rotated token pair |
-| `POST` | `/api/auth/logout` | `{ "refresh_token", "all_devices" }` → revoke tokens |
-| `GET`  | `/api/auth/me` | Current user profile (Bearer required) |
-
-### Managing users
-
-A superuser is seeded on first startup from `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
-If `ADMIN_PASSWORD` is unset, a random password is generated and logged once.
-Approve or reject signups, reset a user's 2FA, and review every upload, download,
-processing, sync, and authentication event in the `/admin` audit log.
-
-### Required environment variables
-
-See `.env.example`. At minimum set a strong `SECRET_KEY`.
-
-### Further reading
-
-- [`docs/auth-api.md`](docs/auth-api.md) — full endpoint reference.
-- [`docs/frontend-integration.md`](docs/frontend-integration.md) — wiring the UI
-  to JWT (login, HTMX header injection, refresh, authenticated downloads).
-- [`CHANGELOG.md`](CHANGELOG.md) — what changed and when.
-
+- [Authentication API](docs/auth-api.md) — signup, approval, MFA, tokens, and
+  endpoint contracts.
+- [Account pages](docs/auth-pages.md) — browser account and workspace flows.
+- [Frontend integration](docs/frontend-integration.md) — token handling,
+  authenticated HTMX requests, refresh, and downloads.
+- [Architecture](docs/architecture.md) and [system design](docs/system-design.md)
+  — application modules and data flow.
+- [Sample payloads](docs/sample-payloads.md) — example API payloads.
+- [Changelog](CHANGELOG.md) — feature and behavior history.

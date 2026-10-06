@@ -37,9 +37,6 @@ class User(Base):
     refresh_tokens: Mapped[List["RefreshToken"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
-    recovery_codes: Mapped[List["RecoveryCode"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
-    )
 
     def __repr__(self) -> str:
         return f"<User {self.email}>"
@@ -64,25 +61,6 @@ class RefreshToken(Base):
 
     def __repr__(self) -> str:
         return f"<RefreshToken user_id={self.user_id} revoked={self.revoked}>"
-
-
-class RecoveryCode(Base):
-    __tablename__ = "recovery_codes"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True
-    )
-    code_hash: Mapped[str] = mapped_column(String(128))
-    used: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow
-    )
-
-    user: Mapped["User"] = relationship(back_populates="recovery_codes")
-
-    def __repr__(self) -> str:
-        return f"<RecoveryCode user_id={self.user_id} used={self.used}>"
 
 
 class AuditLog(Base):

@@ -2,7 +2,7 @@
     'use strict';
     const auth = window.AKIRSAuth;
     const message = document.getElementById('auth-message');
-    const screens = ['account', 'setup', 'mfa', 'pending', 'recovery'];
+    const screens = ['account', 'setup', 'mfa', 'pending'];
 
     function showMessage(text, kind = 'error') {
         message.textContent = text;
@@ -214,7 +214,7 @@
             auth.setTokens(data.access_token, data.refresh_token);
             auth.clearChallenge();
             form.reset();
-            showRecoveryCodes(data.recovery_codes || []);
+            auth.redirectToWorkspace();
         } catch (error) {
             showMessage('Unable to connect. Check your connection and try again.');
         } finally {
@@ -222,37 +222,7 @@
         }
     });
 
-    // --- Recovery codes --------------------------------------------------------
-    function showRecoveryCodes(codes) {
-        const list = document.getElementById('recovery-codes');
-        list.innerHTML = '';
-        codes.forEach((code) => {
-            const item = document.createElement('li');
-            item.textContent = code;
-            list.appendChild(item);
-        });
-        showScreen('recovery');
-    }
-    document.getElementById('recovery-continue').addEventListener('click', () => {
-        auth.redirectToWorkspace();
-    });
-
     // --- Two-factor verification ----------------------------------------------
-    const recoveryRow = document.getElementById('mfa-recovery-row');
-    const mfaCodeInput = document.getElementById('mfa-code');
-    const recoveryCodeInput = document.getElementById('recovery-code');
-    document.getElementById('use-recovery').addEventListener('click', (event) => {
-        event.preventDefault();
-        const showing = !recoveryRow.hidden;
-        recoveryRow.hidden = showing;
-        mfaCodeInput.closest('.auth-field').hidden = !showing;
-        mfaCodeInput.required = !showing;
-        recoveryCodeInput.required = showing;
-        event.currentTarget.textContent = showing
-            ? 'Use a recovery code instead'
-            : 'Use an authenticator code';
-    });
-
     document.getElementById('mfa-form').addEventListener('submit', async (event) => {
         event.preventDefault();
         const form = event.currentTarget;
@@ -260,12 +230,7 @@
         hideMessage();
         setBusy(button, true, 'Log in to workspace');
         try {
-            const payload = { challenge_token: auth.challenge };
-            if (recoveryRow.hidden) {
-                payload.code = form.code.value;
-            } else {
-                payload.recovery_code = document.getElementById('recovery-code').value;
-            }
+            const payload = { challenge_token: auth.challenge, code: form.code.value };
             const { response, data } = await postJSON('/api/auth/2fa/verify', payload);
             if (!response.ok) {
                 showMessage(typeof data.detail === 'string' ? data.detail : 'That code is not valid. Try again.');

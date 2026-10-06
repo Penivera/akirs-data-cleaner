@@ -15,8 +15,7 @@
 | --- | --- | --- |
 | `/auth` | Login / create account | `POST /api/auth/login`, `POST /api/auth/signup` |
 | `/auth/setup` | TOTP setup (setup key + code) | `POST /api/auth/2fa/setup`, `/2fa/enable` |
-| `/auth/mfa` | TOTP / recovery-code login | `POST /api/auth/2fa/verify` |
-| `/auth/recovery` | One-time recovery codes | returned by `/2fa/enable` |
+| `/auth/mfa` | TOTP login | `POST /api/auth/2fa/verify` |
 | `/auth/pending` | Awaiting admin approval | informational |
 | `/app` | Workspace shell (no data) | loads `/api/view/process` via HTMX |
 
@@ -42,8 +41,8 @@ The green/gold styling is scoped to `.auth-page` and does not affect the workspa
    (`setup_required` → `/auth/setup`, `mfa_required` → `/auth/mfa`), storing
    `challenge_token` in `sessionStorage`.
 2. `/auth/setup` → `POST /api/auth/2fa/setup` (shows the setup key), then
-   `POST /api/auth/2fa/enable`; stores tokens and shows recovery codes once.
-3. `/auth/mfa` → `POST /api/auth/2fa/verify` with a TOTP or recovery code; stores
+   `POST /api/auth/2fa/enable`; stores tokens and redirects to the workspace.
+3. `/auth/mfa` → `POST /api/auth/2fa/verify` with a TOTP code; stores
    tokens and redirects to `/app`.
 4. Signup → `POST /api/auth/signup`, then the pending-approval state.
 5. `static/js/auth-core.js` attaches `Authorization: Bearer` to HTMX/fetch and
