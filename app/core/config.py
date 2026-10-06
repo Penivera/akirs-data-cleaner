@@ -97,6 +97,26 @@ class Settings(BaseSettings):
         description="Number of one-time recovery codes generated when 2FA is enabled"
     )
 
+    # --- Cleanup job ---------------------------------------------------
+
+    cleanup_enabled: bool = Field(
+        default=True,
+        validation_alias="CLEANUP_ENABLED",
+        description="Enable the daily file cleanup background job"
+    )
+
+    cleanup_max_age_hours: int = Field(
+        default=24,
+        validation_alias="CLEANUP_MAX_AGE_HOURS",
+        description="Files older than this many hours will be deleted by the cleanup job"
+    )
+
+    cleanup_interval_hours: int = Field(
+        default=24,
+        validation_alias="CLEANUP_INTERVAL_HOURS",
+        description="How often the cleanup job runs, in hours"
+    )
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 settings = Settings()
