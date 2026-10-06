@@ -1,5 +1,8 @@
 <div class="file-card {% if file.preset_name == 'intelligence' %}intelligence-preset{% elif file.preset_name == 'custom' %}custom-preset{% endif %}"
-    id="file-{{ file.id }}">
+    id="file-{{ file.id }}"
+    {% if file.status == 'Processing...' %}
+    data-processing-task="proc_{{ file.id }}" data-file-id="{{ file.id }}"
+    {% endif %}>
     <div class="file-header">
         <div class="file-info">
             <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">

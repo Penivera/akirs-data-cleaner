@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from app.core.state import NubanState
 from app.services.cleaner import load_tabular_rows
 from app.core.config import settings
+from app.core.executor import run_cpu
 
 async def get_bank_list() -> List[Dict[str, str]]:
     """Fetch bank list from Paystack."""
@@ -94,20 +95,20 @@ async def process_nuban_resolution(state: NubanState):
     """Process file to resolve NUBANs and populate target field."""
     if not settings.paystack_secret_key and not settings.flutterwave_secret_key:
         raise Exception("Neither PAYSTACK_SECRET_KEY nor FLUTTERWAVE_SECRET_KEY set in environment")
-    
+
     file_path = state.saved_path
     bank_code = state.selected_bank_code
     nuban_col = state.mapped_nuban_col
     target_col = state.mapped_target_col
     sheet_name = state.selected_sheets[0] if state.selected_sheets else ""
 
-    rows, _ = load_tabular_rows(file_path, sheet_name)
+    rows, _ = await run_cpu(load_tabular_rows, file_path, sheet_name)
     if not rows:
         raise Exception("No data found in file")
 
     header_row_idx = getattr(state, "header_row_idx", 0)
     headers = list(rows[header_row_idx])
-    
+
     try:
         nuban_idx = headers.index(nuban_col)
     except ValueError:
@@ -122,20 +123,20 @@ async def process_nuban_resolution(state: NubanState):
         new_headers = headers + [target_col]
 
     output_rows = [new_headers]
-    
+
     # Process rows
     data_rows = rows[header_row_idx + 1:]
     for row in data_rows:
         if not any(row):
             continue
-            
+
         row_list = list(row)
         # Ensure row has enough columns
         while len(row_list) < len(new_headers):
             row_list.append("")
-            
+
         nuban = str(row_list[nuban_idx]).strip() if nuban_idx < len(row_list) else ""
-        
+
         if nuban and len(nuban) >= 10:
             resolved_name = await resolve_account(nuban, bank_code)
             if resolved_name:
@@ -144,20 +145,24 @@ async def process_nuban_resolution(state: NubanState):
                 row_list[target_idx] = "Resolution Failed"
         else:
             row_list[target_idx] = "Invalid NUBAN"
-            
+
         output_rows.append(row_list)
 
-    # Save to cleaned directory
-    os.makedirs("cleaned", exist_ok=True)
+    # Save to user-scoped cleaned directory
+    from app.core.state import get_user_cleaned_dir
+    output_dir = get_user_cleaned_dir(state.user_id) if state.user_id else "cleaned"
+    os.makedirs(output_dir, exist_ok=True)
     out_filename = f"resolved_{os.path.basename(file_path)}"
+    # Sanitize filename
+    out_filename = out_filename.replace("..", "").replace("/", "_").replace("\\", "_")
     if out_filename.endswith(".xlsx"):
         out_filename = out_filename.replace(".xlsx", ".csv")
-    
-    out_path = os.path.join("cleaned", out_filename)
+
+    out_path = os.path.join(output_dir, out_filename)
     with open(out_path, mode="w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerows(output_rows)
-        
+
     state.resolved_path = out_path
     state.resolved_filename = out_filename
     return out_path

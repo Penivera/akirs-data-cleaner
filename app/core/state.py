@@ -1,9 +1,11 @@
+import os
 import uuid
-from typing import Dict, Any, List,Optional
+from typing import Any, Dict, List, Optional
 
 
 class FileState:
     id: str
+    user_id: Optional[int]
     original_filename: str
     saved_path: str
     headers: List[str]
@@ -35,9 +37,11 @@ class FileState:
     verify_db_fuzzy: bool
     db_matches: List[Dict[str, Any]]
     db_decisions: Dict[str, str]
+    cleaned_path: Optional[str]
 
     def __init__(self):
         self.id = str(uuid.uuid4())
+        self.user_id = None
         self.headers = []
         self.mapped_fields = {}
         self.field_separators = {}
@@ -67,10 +71,12 @@ class FileState:
         self.verify_db_fuzzy = False
         self.db_matches = []
         self.db_decisions = {}
+        self.cleaned_path = None
 
 
-# Global state to keep track of uploaded files in memory
-file_db: Dict[str, FileState] = {}
+# NOTE: state is no longer kept in process memory. Work items and background
+# task status are persisted via app.core.repository so that multiple worker
+# processes see the same data.
 
 PRESETS = {
     "retail": {
@@ -143,6 +149,7 @@ SYNONYMS = {
 
 class AnalysisState:
     id: str
+    user_id: Optional[int]
     original_filename: str
     saved_path: str
     headers: List[str]
@@ -160,6 +167,7 @@ class AnalysisState:
 
     def __init__(self):
         self.id = str(uuid.uuid4())
+        self.user_id = None
         self.headers = []
         self.sheet_names = []
         self.selected_sheets = []
@@ -190,10 +198,10 @@ class AnalysisState:
         self.uploaded_at = 0.0
         self.header_row_idx = None
 
-analysis_db: Dict[str, AnalysisState] = {}
 
 class NubanState:
     id: str
+    user_id: Optional[int]
     original_filename: str
     saved_path: str
     headers: List[str]
@@ -211,6 +219,7 @@ class NubanState:
 
     def __init__(self):
         self.id = str(uuid.uuid4())
+        self.user_id = None
         self.headers = []
         self.sheet_names = []
         self.selected_sheets = []
@@ -224,10 +233,10 @@ class NubanState:
         self.resolved_path = None
         self.resolved_filename = None
 
-nuban_db: Dict[str, NubanState] = {}
 
 class IntelSyncState:
     id: str
+    user_id: Optional[int]
     original_filename: str
     saved_path: str
     headers: List[str]
@@ -247,6 +256,7 @@ class IntelSyncState:
 
     def __init__(self):
         self.id = str(uuid.uuid4())
+        self.user_id = None
         self.headers = []
         self.sheet_names = []
         self.selected_sheets = []
@@ -262,48 +272,23 @@ class IntelSyncState:
         self.verify_db_target_column = "ANY"
         self.verify_db_fuzzy = False
 
-intelsync_db: Dict[str, IntelSyncState] = {}
 
-import pickle
-import os
+def get_user_upload_dir(user_id: int) -> str:
+    """Return the per-user upload directory, creating it if needed."""
+    path = os.path.join("uploads", str(user_id))
+    os.makedirs(path, exist_ok=True)
+    return path
 
-DB_DIR = "uploads"
-DB_FILE = os.path.join(DB_DIR, "state_database.pkl")
 
-def save_all_states():
-    os.makedirs(DB_DIR, exist_ok=True)
-    try:
-        temp_file = DB_FILE + ".tmp"
-        data = {
-            "file_db": file_db,
-            "analysis_db": analysis_db,
-            "nuban_db": nuban_db,
-            "intelsync_db": intelsync_db,
-        }
-        with open(temp_file, "wb") as f:
-            pickle.dump(data, f)
-        os.replace(temp_file, DB_FILE)
-    except Exception as e:
-        print(f"Error persisting states: {e}")
+def get_user_cleaned_dir(user_id: int) -> str:
+    """Return the per-user cleaned directory, creating it if needed."""
+    path = os.path.join("cleaned", str(user_id))
+    os.makedirs(path, exist_ok=True)
+    return path
 
-def load_all_states():
-    global file_db, analysis_db, nuban_db, intelsync_db
-    if os.path.exists(DB_FILE):
-        try:
-            with open(DB_FILE, "rb") as f:
-                data = pickle.load(f)
-                file_db.clear()
-                file_db.update(data.get("file_db", {}))
-                analysis_db.clear()
-                analysis_db.update(data.get("analysis_db", {}))
-                nuban_db.clear()
-                nuban_db.update(data.get("nuban_db", {}))
-                intelsync_db.clear()
-                intelsync_db.update(data.get("intelsync_db", {}))
-                print(f"Successfully loaded persisted states from {DB_FILE} ({len(file_db)} files, {len(intelsync_db)} syncs)")
-                return
-        except Exception as e:
-            print(f"Error loading persisted states: {e}")
 
-# Initial load
-load_all_states()
+def get_user_reports_dir(user_id: int) -> str:
+    """Return the per-user reports directory, creating it if needed."""
+    path = os.path.join("reports", str(user_id))
+    os.makedirs(path, exist_ok=True)
+    return path

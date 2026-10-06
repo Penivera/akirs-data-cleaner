@@ -91,6 +91,12 @@ class Settings(BaseSettings):
         description="Lifetime of the short-lived MFA challenge token in minutes"
     )
 
+    recovery_code_count: int = Field(
+        default=10,
+        validation_alias="RECOVERY_CODE_COUNT",
+        description="Number of one-time recovery codes generated when 2FA is enabled"
+    )
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 settings = Settings()

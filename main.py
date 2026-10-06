@@ -1,6 +1,9 @@
 import logging
 import secrets
+from contextlib import asynccontextmanager
 
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.interval import IntervalTrigger
 from fastapi import Depends, FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -18,8 +21,10 @@ from app.api.intelligence import router as intelligence_router
 from app.core.config import settings
 from app.core.database import SessionLocal, init_db
 from app.core.deps import get_current_user
+from app.core.executor import shutdown_executor
 from app.core.models import User
 from app.core.security import hash_password, verify_password
+from app.services.cleanup import cleanup_stale_files
 
 logger = logging.getLogger("app.startup")
 logging.basicConfig(level=logging.INFO)
@@ -90,7 +95,37 @@ if settings.secret_key == "change-me-in-production" or len(settings.secret_key) 
         "Set a long random SECRET_KEY before deploying to production."
     )
 
-app = FastAPI(title="AKIRS Batch File Cleaner")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: start the cleanup scheduler
+    if settings.cleanup_enabled:
+        scheduler = BackgroundScheduler()
+        scheduler.add_job(
+            cleanup_stale_files,
+            trigger=IntervalTrigger(hours=settings.cleanup_interval_hours),
+            id="daily_cleanup",
+            name="Delete stale uploads and cleaned files",
+            replace_existing=True,
+        )
+        scheduler.start()
+        logger.info(
+            "Started cleanup scheduler (interval=%dh, max_age=%dh)",
+            settings.cleanup_interval_hours,
+            settings.cleanup_max_age_hours,
+        )
+        # Run once at startup to catch anything stale
+        cleanup_stale_files()
+    else:
+        logger.info("Cleanup job is disabled.")
+    yield
+    # Shutdown: stop the scheduler and the CPU thread pool
+    if settings.cleanup_enabled:
+        scheduler.shutdown(wait=False)
+    shutdown_executor()
+
+
+app = FastAPI(title="AKIRS Batch File Cleaner", lifespan=lifespan)
 
 
 @app.middleware("http")

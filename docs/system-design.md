@@ -10,7 +10,7 @@ flowchart TB
     subgraph Server["AKIRS On-Premise Server"]
         App["AKIRS Data Toolkit<br/>FastAPI + Uvicorn"]
         FS[("File System<br/>uploads/ cleaned/ reports/")]
-        State[("In-Memory State<br/>+ state_database.pkl")]
+        State[("SQL Database<br/>work_items + tasks")]
     end
     Paystack["Paystack API<br/>bank list + resolve"]
     Flutter["Flutterwave API<br/>resolve fallback"]
@@ -188,13 +188,13 @@ classDiagram
         +matched_records, unique_records_count
         +verify_db_query_field, verify_db_target_column, verify_db_fuzzy
     }
-    FileState --> "file_db"
-    AnalysisState --> "analysis_db"
-    NubanState --> "nuban_db"
-    IntelSyncState --> "intelsync_db"
+    FileState --> "work_items.kind=file"
+    AnalysisState --> "work_items.kind=analysis"
+    NubanState --> "work_items.kind=nuban"
+    IntelSyncState --> "work_items.kind=intel"
 ```
 
-All four dicts are persisted together via `pickle` to `uploads/state_database.pkl` on every mutation (`save_all_states()`), and loaded at startup (`load_all_states()`).
+Each state object is serialized to JSON and upserted into the `work_items` table (keyed by `id`, indexed by `kind` and `user_id`) via `app/core/repository.py`. Background-task status lives in the `tasks` table. This shared storage lets multiple worker processes see the same state.
 
 ## 8. Deployment Topology
 
@@ -203,12 +203,12 @@ flowchart LR
     subgraph LAN["AKIRS Intranet"]
         B["Client Browser"]
         subgraph Host["Windows/Linux Host"]
-            UV["uvicorn main:app :8080"]
+            UV["gunicorn main:app :8080<br/>(N Uvicorn workers)"]
             subgraph Dirs["Working Directories"]
-                UP["uploads/"]
-                CL["cleaned/"]
-                RP["reports/"]
-                PK["uploads/state_database.pkl"]
+                UP["uploads/{user_id}/"]
+                CL["cleaned/{user_id}/"]
+                RP["reports/{user_id}/"]
+                DB["data/app.db (SQLite, WAL)"]
             end
         end
     end

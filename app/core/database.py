@@ -24,11 +24,9 @@ def _prepare_sqlite_directory(url: str) -> None:
 
 _prepare_sqlite_directory(settings.database_url)
 
-_connect_args = (
-    {"check_same_thread": False}
-    if settings.database_url.startswith("sqlite")
-    else {}
-)
+_is_sqlite = settings.database_url.startswith("sqlite")
+
+_connect_args = {"check_same_thread": False} if _is_sqlite else {}
 
 engine = create_engine(
     settings.database_url,
@@ -36,6 +34,25 @@ engine = create_engine(
     pool_pre_ping=True,
     future=True,
 )
+
+
+if _is_sqlite:
+    from sqlalchemy import event
+
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragmas(dbapi_connection, connection_record):  # noqa: ANN001
+        """Enable concurrency-safe SQLite settings for multi-worker use.
+
+        WAL lets readers and the single writer proceed concurrently, and a busy
+        timeout makes concurrent writers wait instead of failing with
+        "database is locked".
+        """
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 SessionLocal = sessionmaker(
     bind=engine,

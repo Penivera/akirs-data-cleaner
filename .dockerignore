@@ -1,0 +1,41 @@
+# Version control
+.git
+.gitignore
+.dockerignore
+
+# Virtual environments
+.venv
+venv
+ENV/
+env/
+
+# Python bytecode & cache
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local configuration & environment variables
+.env
+*.env
+
+# Runtime data & storage directories
+data/
+uploads/
+cleaned/
+reports/
+logs/
+run/
+scratch/
+scratch*
+
+# Local spreadsheets / data files
+*.xlsx
+*.csv
+
+# Documentation & server configs not needed in image
+deploy.md
+web.config

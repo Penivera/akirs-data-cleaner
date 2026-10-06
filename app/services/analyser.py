@@ -398,7 +398,7 @@ def generate_markdown_report(
     return "\n".join(lines)
 
 
-def process_analytics(state) -> str:
+def process_analytics(state, output_dir: str = "reports") -> str:
     from app.services.cleaner import find_header_row_and_headers_from_rows
 
     all_rows = []
@@ -421,14 +421,16 @@ def process_analytics(state) -> str:
 
     md_content = generate_markdown_report(state, all_rows, state.header_row_idx)
 
-    os.makedirs("reports", exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
     out_filename = os.path.basename(state.saved_path)
+    # Sanitize filename
+    out_filename = out_filename.replace("..", "").replace("/", "_").replace("\\", "_")
     if "." in out_filename:
         out_filename = out_filename[: out_filename.rfind(".")] + "_report.md"
     else:
         out_filename += "_report.md"
 
-    report_path = os.path.join("reports", out_filename)
+    report_path = os.path.join(output_dir, out_filename)
     state.report_filename = out_filename
     with open(report_path, "w", encoding="utf-8") as f:
         f.write(md_content)
@@ -559,7 +561,7 @@ def generate_cumulative_report(
     return "\n".join(lines)
 
 
-def process_cumulative_transactions(state) -> str:
+def process_cumulative_transactions(state, output_dir: str = "reports") -> str:
     from app.services.cleaner import find_header_row_and_headers_from_rows
 
     all_rows = []
@@ -580,14 +582,16 @@ def process_cumulative_transactions(state) -> str:
 
     md_content = generate_cumulative_report(state, all_rows, state.header_row_idx)
 
-    os.makedirs("reports", exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
     out_filename = os.path.basename(state.saved_path)
+    # Sanitize filename
+    out_filename = out_filename.replace("..", "").replace("/", "_").replace("\\", "_")
     if "." in out_filename:
         out_filename = out_filename[: out_filename.rfind(".")] + "_cumulative_report.md"
     else:
         out_filename += "_cumulative_report.md"
 
-    report_path = os.path.join("reports", out_filename)
+    report_path = os.path.join(output_dir, out_filename)
     state.report_filename = out_filename
     with open(report_path, "w", encoding="utf-8") as f:
         f.write(md_content)
