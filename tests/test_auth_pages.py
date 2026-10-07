@@ -1,10 +1,12 @@
 """Run with an isolated DATABASE_URL; never touches the application database."""
+import asyncio
 import os
 import tempfile
 from pathlib import Path
 
 _test_dir = tempfile.TemporaryDirectory()
 os.environ['DATABASE_URL'] = 'sqlite:///' + str(Path(_test_dir.name) / 'test.db')
+os.environ['APP_ENV'] = 'development'
 os.environ['ADMIN_PASSWORD'] = 'test-only-password-123'
 os.environ['SECRET_KEY'] = 'test-only-secret-key-at-least-32-characters'
 os.environ['DEBUG'] = 'false'
@@ -16,39 +18,66 @@ os.environ['CLEANUP_ENABLED'] = 'false'
 import pyotp
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from main import app
-from app.core.database import SessionLocal, engine
+from app.core.database import AsyncSessionLocal, engine
 from app.core.models import User
 from app.core.security import hash_password
 
 ADMIN = {'email': 'admin@akirs.local', 'password': 'test-only-password-123'}
 
 
+def _run(coro):
+    return asyncio.run(coro)
+
+
 @pytest.fixture(scope='module', autouse=True)
 def _cleanup_database():
     yield
-    engine.dispose()
+    _run(engine.dispose())
     _test_dir.cleanup()
 
 
 def _approved_user(email, password='UserPass123!'):
     """Insert an already-approved user directly, so tests do not depend on order."""
-    db = SessionLocal()
-    try:
-        if db.query(User).filter(User.email == email).first() is None:
-            db.add(
-                User(
-                    email=email,
-                    full_name=email,
-                    hashed_password=hash_password(password),
-                    is_active=True,
-                    is_approved=True,
+    async def _insert():
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(User).where(User.email == email))
+            if result.scalars().first() is None:
+                db.add(
+                    User(
+                        email=email,
+                        full_name=email,
+                        hashed_password=hash_password(password),
+                        is_active=True,
+                        is_approved=True,
+                    )
                 )
-            )
-            db.commit()
-    finally:
-        db.close()
+                await db.commit()
+
+    _run(_insert())
+
+
+def _get_user_id(email):
+    async def _fetch():
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(User).where(User.email == email))
+            user = result.scalars().first()
+            return user.id if user is not None else None
+
+    return _run(_fetch())
+
+
+def _approve_user(email):
+    async def _update():
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(User).where(User.email == email))
+            user = result.scalars().first()
+            user.is_approved = True
+            await db.commit()
+
+    _run(_update())
 
 
 def _login_challenge(client, credentials):
@@ -124,11 +153,7 @@ def test_signup_then_admin_approval_then_mandatory_2fa():
         assert pending.status_code == 403
 
         # Admin approves.
-        db = SessionLocal()
-        user = db.query(User).filter(User.email == 'signup@akirs.local').first()
-        user.is_approved = True
-        db.commit()
-        db.close()
+        _approve_user('signup@akirs.local')
 
         challenge = _login_challenge(
             client, {'email': 'signup@akirs.local', 'password': 'UserPass123!'}
@@ -208,11 +233,7 @@ def test_user_data_isolation():
         headers1 = {'Authorization': f"Bearer {tokens1['access_token']}"}
         headers2 = {'Authorization': f"Bearer {tokens2['access_token']}"}
 
-        db = SessionLocal()
-        try:
-            user1 = db.query(User).filter(User.email == 'user1@akirs.local').first()
-        finally:
-            db.close()
+        user1_id = _get_user_id('user1@akirs.local')
 
         # User 1 should see no files initially
         r1 = client.get('/api/view/process', headers=headers1)
@@ -224,10 +245,10 @@ def test_user_data_isolation():
 
         # Simulate a file owned by user1, persisted through the repository
         state = FileState()
-        state.user_id = user1.id
+        state.user_id = user1_id
         state.original_filename = 'user1_file.xlsx'
         state.uploaded_at = _time.time()
-        repo.put(repo.KIND_FILE, state)
+        _run(repo.put(repo.KIND_FILE, state))
 
         try:
             # User 1 should see their file
@@ -247,9 +268,9 @@ def test_user_data_isolation():
             assert r2_del.status_code == 204  # Returns 204 but doesn't delete
 
             # The file still exists for its owner
-            assert repo.get(repo.KIND_FILE, state.id) is not None
+            assert _run(repo.get(repo.KIND_FILE, state.id)) is not None
         finally:
-            repo.delete(repo.KIND_FILE, state.id)
+            _run(repo.delete(repo.KIND_FILE, state.id))
 
 
 def test_repository_roundtrip_tasks_and_purge():
@@ -261,11 +282,7 @@ def test_repository_roundtrip_tasks_and_purge():
     from app.core.state import FileState
 
     _approved_user('repo@akirs.local')
-    db = SessionLocal()
-    try:
-        uid = db.query(User).filter(User.email == 'repo@akirs.local').first().id
-    finally:
-        db.close()
+    uid = _get_user_id('repo@akirs.local')
 
     state = FileState()
     state.user_id = uid
@@ -277,9 +294,9 @@ def test_repository_roundtrip_tasks_and_purge():
     state.extracted_records = [{'id': 's0r2', 'values': ['a', 'b']}]
     state.duplicate_groups = [{'nuban': '123', 'records': [{'id': 's0r2'}]}]
     state.health_report = {'score': 90, 'issues': [{'severity': 'WARNING'}]}
-    repo.put(repo.KIND_FILE, state)
+    _run(repo.put(repo.KIND_FILE, state))
     try:
-        loaded = repo.get(repo.KIND_FILE, state.id)
+        loaded = _run(repo.get(repo.KIND_FILE, state.id))
         assert loaded is not None
         assert loaded.original_filename == 'roundtrip.xlsx'
         assert loaded.user_id == uid
@@ -289,33 +306,33 @@ def test_repository_roundtrip_tasks_and_purge():
         assert loaded.duplicate_groups[0]['records'][0]['id'] == 's0r2'
         assert loaded.health_report['score'] == 90
 
-        listed_ids = {s.id for s in repo.list_for_user(repo.KIND_FILE, uid)}
+        listed_ids = {s.id for s in _run(repo.list_for_user(repo.KIND_FILE, uid))}
         assert state.id in listed_ids
     finally:
-        repo.delete(repo.KIND_FILE, state.id)
-    assert repo.get(repo.KIND_FILE, state.id) is None
+        _run(repo.delete(repo.KIND_FILE, state.id))
+    assert _run(repo.get(repo.KIND_FILE, state.id)) is None
 
     # Background task lifecycle
-    repo.set_task('proc_test', state.id, uid, 'processing', 'Starting...')
+    _run(repo.set_task('proc_test', state.id, uid, 'processing', 'Starting...'))
     try:
-        task = repo.get_task('proc_test')
+        task = _run(repo.get_task('proc_test'))
         assert task == {
             'status': 'processing',
             'file_id': state.id,
             'user_id': uid,
             'message': 'Starting...',
         }
-        repo.update_task('proc_test', message='Working...', status='done')
-        task = repo.get_task('proc_test')
+        _run(repo.update_task('proc_test', message='Working...', status='done'))
+        task = _run(repo.get_task('proc_test'))
         assert task['status'] == 'done' and task['message'] == 'Working...'
     finally:
-        repo.purge_older_than(_time.time() + 1)
+        _run(repo.purge_older_than(_time.time() + 1))
 
     # Purge removes items uploaded before the cutoff
     stale = FileState()
     stale.user_id = uid
     stale.original_filename = 'stale.xlsx'
     stale.uploaded_at = 0.0
-    repo.put(repo.KIND_FILE, stale)
-    assert repo.purge_older_than(_time.time()) >= 1
-    assert repo.get(repo.KIND_FILE, stale.id) is None
+    _run(repo.put(repo.KIND_FILE, stale))
+    assert _run(repo.purge_older_than(_time.time())) >= 1
+    assert _run(repo.get(repo.KIND_FILE, stale.id)) is None

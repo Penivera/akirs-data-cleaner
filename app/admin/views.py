@@ -98,41 +98,41 @@ class UserView(ModelView):
             obj.email = email
 
     async def after_create_committed(self, request: Request, obj: Any) -> None:
-        log_audit(
+        await log_audit(
             "user_created",
-            user=self._actor(request),
+            user=await self._actor(request),
             status="success",
             detail=f"target={obj.email}",
             request=request,
         )
 
     async def after_edit_committed(self, request: Request, obj: Any) -> None:
-        log_audit(
+        await log_audit(
             "user_updated",
-            user=self._actor(request),
+            user=await self._actor(request),
             status="success",
             detail=f"target={obj.email}",
             request=request,
         )
 
     async def after_delete_committed(self, request: Request, obj: Any) -> None:
-        log_audit(
+        await log_audit(
             "user_deleted",
-            user=self._actor(request),
+            user=await self._actor(request),
             status="success",
             detail=f"target={getattr(obj, 'email', 'unknown')}",
             request=request,
         )
 
-    def _actor(self, request: Request) -> User | None:
+    async def _actor(self, request: Request) -> User | None:
         session = request.state.session
         admin_id = request.session.get("admin_user_id")
         if admin_id is None:
             return None
-        return session.get(User, admin_id)
+        return await session.get(User, admin_id)
 
     async def delete(self, request: Request, pks: list) -> int | None:
-        actor = self._actor(request)
+        actor = await self._actor(request)
         if actor is not None:
             remaining = [pk for pk in pks if str(pk) != str(actor.id)]
             if not remaining:
@@ -150,13 +150,13 @@ class UserView(ModelView):
     async def approve(self, request: Request, selection: ActionSelection) -> None:
         session = request.state.session
         users = await selection.rows()
-        actor = self._actor(request)
+        actor = await self._actor(request)
         for user in users:
             user.is_approved = True
             user.is_active = True
-        session.commit()
+        await session.commit()
         for user in users:
-            log_audit(
+            await log_audit(
                 "user_approved",
                 user=actor,
                 status="success",
@@ -174,16 +174,16 @@ class UserView(ModelView):
     )
     async def reject(self, request: Request, selection: ActionSelection) -> None:
         session = request.state.session
-        actor = self._actor(request)
+        actor = await self._actor(request)
         selected = await selection.rows()
         users = [user for user in selected if actor is None or user.id != actor.id]
         for user in users:
             user.is_approved = False
             user.is_active = False
             user.token_version += 1
-        session.commit()
+        await session.commit()
         for user in users:
-            log_audit(
+            await log_audit(
                 "user_rejected",
                 user=actor,
                 status="success",
@@ -206,15 +206,15 @@ class UserView(ModelView):
     async def reset_2fa(self, request: Request, selection: ActionSelection) -> None:
         session = request.state.session
         users = await selection.rows()
-        actor = self._actor(request)
+        actor = await self._actor(request)
         for user in users:
             user.totp_enabled = False
             user.totp_secret = None
             user.pending_totp_secret = None
             user.token_version += 1
-        session.commit()
+        await session.commit()
         for user in users:
-            log_audit(
+            await log_audit(
                 "user_2fa_reset",
                 user=actor,
                 status="success",

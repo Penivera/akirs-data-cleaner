@@ -21,6 +21,7 @@ from app.core.state import (
     get_user_reports_dir,
 )
 from app.services.audit import log_audit
+from app.services.cleanup import remove_uploaded_file
 from app.services.validators import validate_upload
 from app.services.cleaner import (
     auto_map_headers,
@@ -43,7 +44,7 @@ DUPLICATE_UPLOAD_WINDOW_SECONDS = 5
 
 @router.get("/", response_class=HTMLResponse)
 async def read_index(request: Request, current_user: User = Depends(get_current_user)):
-    user_files = repo.list_for_user(repo.KIND_FILE, current_user.id)
+    user_files = await repo.list_for_user(repo.KIND_FILE, current_user.id)
     return templates.TemplateResponse(
         request=request,
         name="index.html",
@@ -91,7 +92,7 @@ async def upload_file(
         file_hash = hasher.hexdigest()
 
         is_duplicate = False
-        for existing_state in repo.list_for_user(repo.KIND_FILE, current_user.id):
+        for existing_state in await repo.list_for_user(repo.KIND_FILE, current_user.id):
             if (
                 existing_state.original_filename == f.filename
                 and getattr(existing_state, "upload_hash", "") == file_hash
@@ -160,9 +161,9 @@ async def upload_file(
         except Exception as e:
             state.status = f"Error: {str(e)}"
 
-        repo.put(repo.KIND_FILE, state)
+        await repo.put(repo.KIND_FILE, state)
         processed_states.append(state)
-        log_audit(
+        await log_audit(
             "upload",
             user=current_user,
             filename=state.original_filename,
@@ -187,7 +188,7 @@ async def upload_file(
 
 @router.post("/api/components/mapping/{file_id}", response_class=HTMLResponse)
 async def edit_mapping(request: Request, file_id: str, current_user: User = Depends(get_current_user)):
-    state = repo.get(repo.KIND_FILE, file_id)
+    state = await repo.get(repo.KIND_FILE, file_id)
     if not state or state.user_id != current_user.id:
         return "File not found"
 
@@ -252,7 +253,7 @@ async def edit_mapping(request: Request, file_id: str, current_user: User = Depe
 
 @router.post("/api/mapping/{file_id}", response_class=HTMLResponse)
 async def save_mapping(request: Request, file_id: str, current_user: User = Depends(get_current_user)):
-    state = repo.get(repo.KIND_FILE, file_id)
+    state = await repo.get(repo.KIND_FILE, file_id)
     if not state or state.user_id != current_user.id:
         return "File not found"
 
@@ -345,7 +346,7 @@ async def save_mapping(request: Request, file_id: str, current_user: User = Depe
     else:
         fields = PRESETS.get(state.preset_name, PRESETS["retail"])["fields"]
 
-    repo.put(repo.KIND_FILE, state)
+    await repo.put(repo.KIND_FILE, state)
     return templates.TemplateResponse(
         request=request,
         name="partials/file_card.html",
@@ -359,7 +360,7 @@ async def delete_file(
     file_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    state = repo.get(repo.KIND_FILE, file_id)
+    state = await repo.get(repo.KIND_FILE, file_id)
     if state is not None and state.user_id == current_user.id:
         # Delete the physical file
         if state.saved_path and os.path.exists(state.saved_path):
@@ -373,8 +374,8 @@ async def delete_file(
                 os.remove(state.cleaned_path)
             except OSError:
                 pass
-        repo.delete(repo.KIND_FILE, file_id)
-        log_audit(
+        await repo.delete(repo.KIND_FILE, file_id)
+        await log_audit(
             "delete",
             user=current_user,
             filename=state.original_filename,
@@ -390,7 +391,7 @@ async def process_file(
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
 ):
-    state = repo.get(repo.KIND_FILE, file_id)
+    state = await repo.get(repo.KIND_FILE, file_id)
     if not state or state.user_id != current_user.id:
         return "File not found"
 
@@ -402,7 +403,7 @@ async def process_file(
     # Mark as processing and queue background task
     state.status = "Processing..."
     task_id = f"proc_{state.id}"
-    repo.set_task(task_id, file_id, current_user.id, "processing", "Starting...")
+    await repo.set_task(task_id, file_id, current_user.id, "processing", "Starting...")
 
     background_tasks.add_task(
         _process_file_background,
@@ -411,8 +412,8 @@ async def process_file(
         task_id=task_id,
     )
 
-    repo.put(repo.KIND_FILE, state)
-    log_audit(
+    await repo.put(repo.KIND_FILE, state)
+    await log_audit(
         "process_started",
         user=current_user,
         filename=state.original_filename,
@@ -429,9 +430,9 @@ async def process_file(
 
 async def _process_file_background(file_id: str, user_id: int, task_id: str):
     """Run the actual file processing in the background."""
-    state = repo.get(repo.KIND_FILE, file_id)
+    state = await repo.get(repo.KIND_FILE, file_id)
     if not state or state.user_id != user_id:
-        repo.set_task(task_id, file_id, user_id, "failed", "File not found")
+        await repo.set_task(task_id, file_id, user_id, "failed", "File not found")
         return
 
     if state.preset_name == "custom":
@@ -440,7 +441,7 @@ async def _process_file_background(file_id: str, user_id: int, task_id: str):
         fields = PRESETS.get(state.preset_name, PRESETS["retail"])["fields"]
 
     try:
-        repo.update_task(task_id, message="Extracting records...")
+        await repo.update_task(task_id, message="Extracting records...")
         records, skipped_records = await run_cpu(
             extract_records,
             state.saved_path,
@@ -458,7 +459,7 @@ async def _process_file_background(file_id: str, user_id: int, task_id: str):
         )
         state.skipped_records = skipped_records
 
-        repo.update_task(task_id, message="Checking for duplicates...")
+        await repo.update_task(task_id, message="Checking for duplicates...")
         duplicate_groups = await run_cpu(
             find_duplicate_groups, records, state.duplicate_logic, state.primary_key_field, fields
         )
@@ -467,12 +468,12 @@ async def _process_file_background(file_id: str, user_id: int, task_id: str):
             state.extracted_records = records
             state.duplicate_groups = duplicate_groups
             state.status = f"Needs Duplicate Review ({len(duplicate_groups)} groups)"
-            repo.set_task(task_id, file_id, user_id, "done", state.status)
+            await repo.set_task(task_id, file_id, user_id, "done", state.status)
         else:
             # Check against live DB
             has_db_matches = False
             if getattr(state, "verify_db", False):
-                repo.update_task(task_id, message="Checking against live DB...")
+                await repo.update_task(task_id, message="Checking against live DB...")
                 matches_zipped = await check_file_records_against_db(
                     records,
                     fields,
@@ -494,7 +495,7 @@ async def _process_file_background(file_id: str, user_id: int, task_id: str):
                     has_db_matches = True
 
             if not has_db_matches:
-                repo.update_task(task_id, message="Writing cleaned file...")
+                await repo.update_task(task_id, message="Writing cleaned file...")
                 cleaned_dir = get_user_cleaned_dir(user_id)
                 out_path = await run_cpu(
                     save_cleaned_records,
@@ -506,19 +507,20 @@ async def _process_file_background(file_id: str, user_id: int, task_id: str):
                 )
                 state.status = f"Processed ({len(records)} rows)"
                 state.cleaned_path = out_path
-                repo.set_task(task_id, file_id, user_id, "done", state.status)
+                await repo.set_task(task_id, file_id, user_id, "done", state.status)
+                await remove_uploaded_file(state.saved_path)
 
     except Exception as e:
         state.status = f"Failed ({str(e)})"
-        repo.set_task(task_id, file_id, user_id, "failed", str(e))
+        await repo.set_task(task_id, file_id, user_id, "failed", str(e))
 
-    repo.put(repo.KIND_FILE, state)
+    await repo.put(repo.KIND_FILE, state)
 
 
 @router.get("/api/task-status/{task_id}")
 async def get_task_status(task_id: str, current_user: User = Depends(get_current_user)):
     """Poll the status of a background processing task."""
-    task = repo.get_task(task_id)
+    task = await repo.get_task(task_id)
     if not task or task.get("user_id") != current_user.id:
         return {"status": "unknown", "message": "Task not found"}
 
@@ -535,7 +537,7 @@ async def resolve_duplicates(
     file_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    state = repo.get(repo.KIND_FILE, file_id)
+    state = await repo.get(repo.KIND_FILE, file_id)
     if not state or state.user_id != current_user.id:
         return "File not found"
 
@@ -613,11 +615,12 @@ async def resolve_duplicates(
             state.cleaned_path = out_path
             state.duplicate_groups = []
             state.extracted_records = []
+            await remove_uploaded_file(state.saved_path)
     except Exception as e:
         state.status = f"Failed ({str(e)})"
 
-    repo.put(repo.KIND_FILE, state)
-    log_audit(
+    await repo.put(repo.KIND_FILE, state)
+    await log_audit(
         "resolve_duplicates",
         user=current_user,
         filename=state.original_filename,
@@ -638,7 +641,7 @@ async def resolve_db(
     file_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    state = repo.get(repo.KIND_FILE, file_id)
+    state = await repo.get(repo.KIND_FILE, file_id)
     if not state or state.user_id != current_user.id:
         return "File not found"
 
@@ -682,11 +685,12 @@ async def resolve_db(
         state.cleaned_path = out_path
         state.db_matches = []
         state.extracted_records = []
+        await remove_uploaded_file(state.saved_path)
     except Exception as e:
         state.status = f"Failed ({str(e)})"
 
-    repo.put(repo.KIND_FILE, state)
-    log_audit(
+    await repo.put(repo.KIND_FILE, state)
+    await log_audit(
         "resolve_db",
         user=current_user,
         filename=state.original_filename,
@@ -702,7 +706,7 @@ async def resolve_db(
 
 @router.get("/api/view/process", response_class=HTMLResponse)
 async def get_process_view(request: Request, current_user: User = Depends(get_current_user)):
-    user_files = repo.list_for_user(repo.KIND_FILE, current_user.id)
+    user_files = await repo.list_for_user(repo.KIND_FILE, current_user.id)
     return templates.TemplateResponse(
         request=request,
         name="partials/process_view.html",
@@ -767,7 +771,7 @@ async def get_cleaned_view(request: Request, current_user: User = Depends(get_cu
 async def view_data(request: Request, file_id: str, current_user: User = Depends(get_current_user)):
     import csv
 
-    state = repo.get(repo.KIND_FILE, file_id)
+    state = await repo.get(repo.KIND_FILE, file_id)
     if not state or state.user_id != current_user.id or not state.cleaned_path:
         return "Not available"
 
@@ -791,7 +795,7 @@ async def view_data(request: Request, file_id: str, current_user: User = Depends
 
 @router.get("/api/view-skipped/{file_id}", response_class=HTMLResponse)
 async def view_skipped(request: Request, file_id: str, current_user: User = Depends(get_current_user)):
-    state = repo.get(repo.KIND_FILE, file_id)
+    state = await repo.get(repo.KIND_FILE, file_id)
     if not state or state.user_id != current_user.id or getattr(state, "skipped_records", None) is None:
         return "Not available"
 
@@ -821,7 +825,7 @@ async def download_single(
     file_path = os.path.join(user_cleaned_dir, safe_filename)
 
     if os.path.exists(file_path):
-        log_audit("download", user=current_user, filename=safe_filename, request=request)
+        await log_audit("download", user=current_user, filename=safe_filename, request=request)
         return FileResponse(path=file_path, filename=safe_filename, media_type="text/csv")
     return HTMLResponse("File not found", status_code=404)
 
@@ -840,7 +844,7 @@ async def download_batch(
     if not selected_files:
         return HTMLResponse("No files selected.", status_code=400)
 
-    log_audit(
+    await log_audit(
         "download_batch",
         user=current_user,
         detail=", ".join(selected_files),

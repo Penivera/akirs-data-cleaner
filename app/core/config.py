@@ -1,6 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
-from pydantic import Field
+from pydantic import Field, model_validator
 
 class Settings(BaseSettings):
     paystack_secret_key: Optional[str] = Field(
@@ -37,10 +37,16 @@ class Settings(BaseSettings):
         description="Secret key used to sign JWT access/refresh tokens and admin sessions"
     )
 
+    app_env: str = Field(
+        default="development",
+        validation_alias="APP_ENV",
+        description="Deployment environment: development or production",
+    )
+
     database_url: str = Field(
         default="sqlite:///./data/app.db",
         validation_alias="DATABASE_URL",
-        description="SQLAlchemy database URL (SQLite by default, PostgreSQL supported)"
+        description="SQLAlchemy database URL. Production requires PostgreSQL.",
     )
 
     admin_email: str = Field(
@@ -143,5 +149,17 @@ class Settings(BaseSettings):
     )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @model_validator(mode="after")
+    def _validate_database(self) -> "Settings":
+        if self.app_env.lower() == "production" and not self.database_url.startswith(
+            ("postgresql://", "postgres://", "postgresql+asyncpg://")
+        ):
+            raise ValueError(
+                "DATABASE_URL must be a PostgreSQL URL in production "
+                f"(APP_ENV={self.app_env!r}); SQLite is not supported in production."
+            )
+        return self
+
 
 settings = Settings()

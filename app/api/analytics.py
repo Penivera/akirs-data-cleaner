@@ -29,7 +29,7 @@ DUPLICATE_UPLOAD_WINDOW_SECONDS = 5
 
 @router.get("/api/analyse/view", response_class=HTMLResponse)
 async def get_analyse_view(request: Request, current_user: User = Depends(get_current_user)):
-    user_files = repo.list_for_user(repo.KIND_ANALYSIS, current_user.id)
+    user_files = await repo.list_for_user(repo.KIND_ANALYSIS, current_user.id)
     return templates.TemplateResponse(
         request=request,
         name="partials/analyse_view.html",
@@ -77,7 +77,7 @@ async def analyse_upload(
         file_hash = hasher.hexdigest()
 
         is_duplicate = False
-        for existing_state in repo.list_for_user(repo.KIND_ANALYSIS, current_user.id):
+        for existing_state in await repo.list_for_user(repo.KIND_ANALYSIS, current_user.id):
             if (
                 existing_state.original_filename == f.filename
                 and getattr(existing_state, "upload_hash", "") == file_hash
@@ -127,9 +127,9 @@ async def analyse_upload(
         except Exception as e:
             state.status = f"Error: {str(e)}"
 
-        repo.put(repo.KIND_ANALYSIS, state)
+        await repo.put(repo.KIND_ANALYSIS, state)
         processed_states.append(state)
-        log_audit(
+        await log_audit(
             "analyse_upload",
             user=current_user,
             filename=state.original_filename,
@@ -146,7 +146,7 @@ async def analyse_upload(
 
 @router.post("/api/analyse/config/{file_id}", response_class=HTMLResponse)
 async def analyse_config(request: Request, file_id: str, current_user: User = Depends(get_current_user)):
-    state = repo.get(repo.KIND_ANALYSIS, file_id)
+    state = await repo.get(repo.KIND_ANALYSIS, file_id)
     if not state or state.user_id != current_user.id:
         return "File not found"
 
@@ -228,7 +228,7 @@ async def analyse_config(request: Request, file_id: str, current_user: User = De
         if has_identity and (has_metric or has_credit_debit):
             state.status = "Configured"
 
-    repo.put(repo.KIND_ANALYSIS, state)
+    await repo.put(repo.KIND_ANALYSIS, state)
     return templates.TemplateResponse(
         request=request,
         name="partials/analyse_file_card.html",
@@ -240,7 +240,7 @@ async def analyse_config(request: Request, file_id: str, current_user: User = De
     "/api/analyse/components/config-form/{file_id}", response_class=HTMLResponse
 )
 async def get_config_form(request: Request, file_id: str, current_user: User = Depends(get_current_user)):
-    state = repo.get(repo.KIND_ANALYSIS, file_id)
+    state = await repo.get(repo.KIND_ANALYSIS, file_id)
     if not state or state.user_id != current_user.id:
         return "File not found"
 
@@ -281,7 +281,7 @@ async def analyse_generate(
     file_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    state = repo.get(repo.KIND_ANALYSIS, file_id)
+    state = await repo.get(repo.KIND_ANALYSIS, file_id)
     if not state or state.user_id != current_user.id:
         return "File not found"
 
@@ -301,8 +301,8 @@ async def analyse_generate(
     except Exception as e:
         state.status = f"Failed ({str(e)})"
 
-    repo.put(repo.KIND_ANALYSIS, state)
-    log_audit(
+    await repo.put(repo.KIND_ANALYSIS, state)
+    await log_audit(
         "analyse_generate",
         user=current_user,
         filename=state.original_filename,
@@ -322,7 +322,7 @@ async def delete_analyse_file(
     file_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    state = repo.get(repo.KIND_ANALYSIS, file_id)
+    state = await repo.get(repo.KIND_ANALYSIS, file_id)
     if state is not None and state.user_id == current_user.id:
         # Delete physical files
         if state.saved_path and os.path.exists(state.saved_path):
@@ -335,8 +335,8 @@ async def delete_analyse_file(
                 os.remove(state.report_path)
             except OSError:
                 pass
-        repo.delete(repo.KIND_ANALYSIS, file_id)
-        log_audit(
+        await repo.delete(repo.KIND_ANALYSIS, file_id)
+        await log_audit(
             "analyse_delete",
             user=current_user,
             filename=state.original_filename,

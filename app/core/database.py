@@ -1,9 +1,35 @@
 import os
 
-from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy import inspect, text
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import settings
+
+
+def normalize_database_url(url: str) -> str:
+    """Append the async driver for SQLite and PostgreSQL URLs.
+
+    Accepts plain ``sqlite:///...`` and ``postgresql://...`` (or
+    ``postgres://...``) URLs and rewrites them to their async equivalents
+    (``sqlite+aiosqlite`` and ``postgresql+asyncpg``). URLs that already carry
+    an async driver are left untouched.
+    """
+    if url.startswith("sqlite+aiosqlite://"):
+        return url
+    if url.startswith("sqlite://"):
+        return url.replace("sqlite://", "sqlite+aiosqlite://", 1)
+    if url.startswith("postgresql+asyncpg://"):
+        return url
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+asyncpg://", 1)
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    return url
 
 
 def _prepare_sqlite_directory(url: str) -> None:
@@ -11,7 +37,7 @@ def _prepare_sqlite_directory(url: str) -> None:
     if not url.startswith("sqlite"):
         return
 
-    prefix = "sqlite:///"
+    prefix = "sqlite+aiosqlite:///"
     if prefix not in url:
         return
 
@@ -22,15 +48,13 @@ def _prepare_sqlite_directory(url: str) -> None:
             os.makedirs(directory, exist_ok=True)
 
 
-_prepare_sqlite_directory(settings.database_url)
+_normalized_url = normalize_database_url(settings.database_url)
+_prepare_sqlite_directory(_normalized_url)
 
-_is_sqlite = settings.database_url.startswith("sqlite")
+_is_sqlite = _normalized_url.startswith("sqlite")
 
-_connect_args = {"check_same_thread": False} if _is_sqlite else {}
-
-engine = create_engine(
-    settings.database_url,
-    connect_args=_connect_args,
+engine = create_async_engine(
+    _normalized_url,
     pool_pre_ping=True,
     future=True,
 )
@@ -39,7 +63,7 @@ engine = create_engine(
 if _is_sqlite:
     from sqlalchemy import event
 
-    @event.listens_for(engine, "connect")
+    @event.listens_for(engine.sync_engine, "connect")
     def _set_sqlite_pragmas(dbapi_connection, connection_record):  # noqa: ANN001
         """Enable concurrency-safe SQLite settings for multi-worker use.
 
@@ -54,8 +78,10 @@ if _is_sqlite:
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 
-SessionLocal = sessionmaker(
+
+AsyncSessionLocal = async_sessionmaker(
     bind=engine,
+    class_=AsyncSession,
     autoflush=False,
     autocommit=False,
     expire_on_commit=False,
@@ -66,38 +92,45 @@ class Base(DeclarativeBase):
     pass
 
 
-def _ensure_user_columns() -> None:
+async def _ensure_user_columns() -> None:
     """Best-effort additive migration for databases created before a column existed."""
-    inspector = inspect(engine)
-    if "users" not in inspector.get_table_names():
-        return
-
-    existing = {column["name"] for column in inspector.get_columns("users")}
-    statements = []
-    if "is_approved" not in existing:
-        statements.append(
-            "ALTER TABLE users ADD COLUMN is_approved BOOLEAN DEFAULT TRUE NOT NULL"
+    async with engine.connect() as conn:
+        tables = await conn.run_sync(
+            lambda sync_conn: inspect(sync_conn).get_table_names()
         )
-    if "totp_secret" not in existing:
-        statements.append("ALTER TABLE users ADD COLUMN totp_secret VARCHAR(64)")
-    if "pending_totp_secret" not in existing:
-        statements.append(
-            "ALTER TABLE users ADD COLUMN pending_totp_secret VARCHAR(64)"
+        if "users" not in tables:
+            return
+
+        existing = await conn.run_sync(
+            lambda sync_conn: {
+                column["name"] for column in inspect(sync_conn).get_columns("users")
+            }
         )
-    if "totp_enabled" not in existing:
-        statements.append(
-            "ALTER TABLE users ADD COLUMN totp_enabled BOOLEAN DEFAULT FALSE NOT NULL"
-        )
+        statements = []
+        if "is_approved" not in existing:
+            statements.append(
+                "ALTER TABLE users ADD COLUMN is_approved BOOLEAN DEFAULT TRUE NOT NULL"
+            )
+        if "totp_secret" not in existing:
+            statements.append("ALTER TABLE users ADD COLUMN totp_secret VARCHAR(64)")
+        if "pending_totp_secret" not in existing:
+            statements.append(
+                "ALTER TABLE users ADD COLUMN pending_totp_secret VARCHAR(64)"
+            )
+        if "totp_enabled" not in existing:
+            statements.append(
+                "ALTER TABLE users ADD COLUMN totp_enabled BOOLEAN DEFAULT FALSE NOT NULL"
+            )
 
-    if statements:
-        with engine.begin() as conn:
-            for statement in statements:
-                conn.execute(text(statement))
+        for statement in statements:
+            await conn.execute(text(statement))
+        await conn.commit()
 
 
-def init_db() -> None:
+async def init_db() -> None:
     """Create all tables that do not yet exist."""
     from app.core import models  # noqa: F401  (register models on Base)
 
-    Base.metadata.create_all(bind=engine)
-    _ensure_user_columns()
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    await _ensure_user_columns()

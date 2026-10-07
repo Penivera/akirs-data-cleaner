@@ -22,7 +22,7 @@ templates = Jinja2Templates(directory="templates")
 
 @router.get("/api/intel/view", response_class=HTMLResponse)
 async def get_intel_view(request: Request, current_user: User = Depends(get_current_user)):
-    user_files = repo.list_for_user(repo.KIND_INTEL, current_user.id)
+    user_files = await repo.list_for_user(repo.KIND_INTEL, current_user.id)
     return templates.TemplateResponse(
         request=request,
         name="partials/intelligence_view.html",
@@ -69,7 +69,7 @@ async def intel_upload(
         file_hash = hasher.hexdigest()
 
         is_duplicate = False
-        for existing_state in repo.list_for_user(repo.KIND_INTEL, current_user.id):
+        for existing_state in await repo.list_for_user(repo.KIND_INTEL, current_user.id):
             if (
                 existing_state.original_filename == f.filename
                 and existing_state.upload_hash == file_hash
@@ -104,9 +104,9 @@ async def intel_upload(
         except Exception as e:
             state.status = f"Error: {str(e)}"
 
-        repo.put(repo.KIND_INTEL, state)
+        await repo.put(repo.KIND_INTEL, state)
         processed_states.append(state)
-        log_audit(
+        await log_audit(
             "intel_upload",
             user=current_user,
             filename=state.original_filename,
@@ -122,7 +122,7 @@ async def intel_upload(
 
 @router.post("/api/intel/config-form/{file_id}", response_class=HTMLResponse)
 async def get_intel_config_form(request: Request, file_id: str, current_user: User = Depends(get_current_user)):
-    state = repo.get(repo.KIND_INTEL, file_id)
+    state = await repo.get(repo.KIND_INTEL, file_id)
     if not state or state.user_id != current_user.id:
         return "File not found"
         
@@ -150,7 +150,7 @@ async def save_intel_config(
     file_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    state = repo.get(repo.KIND_INTEL, file_id)
+    state = await repo.get(repo.KIND_INTEL, file_id)
     if not state or state.user_id != current_user.id:
         return "File not found"
 
@@ -163,8 +163,8 @@ async def save_intel_config(
     if form_data.getlist("selected_sheets"):
         state.selected_sheets = form_data.getlist("selected_sheets")
         await process_intel_sync(state, user_id=current_user.id)
-        repo.put(repo.KIND_INTEL, state)
-        log_audit(
+        await repo.put(repo.KIND_INTEL, state)
+        await log_audit(
             "intel_sync",
             user=current_user,
             filename=state.original_filename,
@@ -184,7 +184,7 @@ async def delete_intel_file(
     file_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    state = repo.get(repo.KIND_INTEL, file_id)
+    state = await repo.get(repo.KIND_INTEL, file_id)
     if state is not None and state.user_id == current_user.id:
         # Delete physical files
         if state.saved_path and os.path.exists(state.saved_path):
@@ -197,8 +197,8 @@ async def delete_intel_file(
                 os.remove(state.unique_path)
             except OSError:
                 pass
-        repo.delete(repo.KIND_INTEL, file_id)
-        log_audit(
+        await repo.delete(repo.KIND_INTEL, file_id)
+        await log_audit(
             "intel_delete",
             user=current_user,
             filename=state.original_filename,

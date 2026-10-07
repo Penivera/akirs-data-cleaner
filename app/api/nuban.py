@@ -24,7 +24,7 @@ DUPLICATE_UPLOAD_WINDOW_SECONDS = 5
 
 @router.get("/api/nuban/view", response_class=HTMLResponse)
 async def get_nuban_view(request: Request, current_user: User = Depends(get_current_user)):
-    user_files = repo.list_for_user(repo.KIND_NUBAN, current_user.id)
+    user_files = await repo.list_for_user(repo.KIND_NUBAN, current_user.id)
     return templates.TemplateResponse(
         request=request,
         name="partials/nuban_view.html",
@@ -71,7 +71,7 @@ async def nuban_upload(
         file_hash = hasher.hexdigest()
 
         is_duplicate = False
-        for existing_state in repo.list_for_user(repo.KIND_NUBAN, current_user.id):
+        for existing_state in await repo.list_for_user(repo.KIND_NUBAN, current_user.id):
             if (
                 existing_state.original_filename == f.filename
                 and getattr(existing_state, "upload_hash", "") == file_hash
@@ -110,9 +110,9 @@ async def nuban_upload(
         except Exception as e:
             state.status = f"Error: {str(e)}"
 
-        repo.put(repo.KIND_NUBAN, state)
+        await repo.put(repo.KIND_NUBAN, state)
         processed_states.append(state)
-        log_audit(
+        await log_audit(
             "nuban_upload",
             user=current_user,
             filename=state.original_filename,
@@ -128,7 +128,7 @@ async def nuban_upload(
 
 @router.post("/api/nuban/config-form/{file_id}", response_class=HTMLResponse)
 async def get_nuban_config_form(request: Request, file_id: str, current_user: User = Depends(get_current_user)):
-    state = repo.get(repo.KIND_NUBAN, file_id)
+    state = await repo.get(repo.KIND_NUBAN, file_id)
     if not state or state.user_id != current_user.id:
         return "File not found"
         
@@ -154,7 +154,7 @@ async def get_nuban_config_form(request: Request, file_id: str, current_user: Us
 
 @router.post("/api/nuban/save-config/{file_id}", response_class=HTMLResponse)
 async def save_nuban_config(request: Request, file_id: str, current_user: User = Depends(get_current_user)):
-    state = repo.get(repo.KIND_NUBAN, file_id)
+    state = await repo.get(repo.KIND_NUBAN, file_id)
     if not state or state.user_id != current_user.id:
         return "File not found"
         
@@ -175,7 +175,7 @@ async def save_nuban_config(request: Request, file_id: str, current_user: User =
         if state.mapped_nuban_col and state.mapped_target_col and state.selected_bank_code:
             state.status = "Configured"
 
-    repo.put(repo.KIND_NUBAN, state)
+    await repo.put(repo.KIND_NUBAN, state)
     return templates.TemplateResponse(
         request=request,
         name="partials/nuban_file_card.html",
@@ -188,7 +188,7 @@ async def resolve_nuban_action(
     file_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    state = repo.get(repo.KIND_NUBAN, file_id)
+    state = await repo.get(repo.KIND_NUBAN, file_id)
     if not state or state.user_id != current_user.id:
         return "File not found"
 
@@ -200,8 +200,8 @@ async def resolve_nuban_action(
     except Exception as e:
         state.status = f"Failed ({str(e)})"
 
-    repo.put(repo.KIND_NUBAN, state)
-    log_audit(
+    await repo.put(repo.KIND_NUBAN, state)
+    await log_audit(
         "nuban_resolve",
         user=current_user,
         filename=state.original_filename,
@@ -221,7 +221,7 @@ async def delete_nuban_file(
     file_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    state = repo.get(repo.KIND_NUBAN, file_id)
+    state = await repo.get(repo.KIND_NUBAN, file_id)
     if state is not None and state.user_id == current_user.id:
         # Delete physical files
         if state.saved_path and os.path.exists(state.saved_path):
@@ -234,8 +234,8 @@ async def delete_nuban_file(
                 os.remove(state.resolved_path)
             except OSError:
                 pass
-        repo.delete(repo.KIND_NUBAN, file_id)
-        log_audit(
+        await repo.delete(repo.KIND_NUBAN, file_id)
+        await log_audit(
             "nuban_delete",
             user=current_user,
             filename=state.original_filename,

@@ -1,0 +1,39 @@
+services:
+  akirs:
+    build: .
+    image: akirs:latest
+    container_name: akirs
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql://akirs:${POSTGRES_PASSWORD:-akirs}@db:5432/akirs
+    volumes:
+      # Persist uploaded source files across container restarts
+      - uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    container_name: akirs-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: akirs
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-akirs}
+      POSTGRES_DB: akirs
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U akirs -d akirs"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  uploads:
+  postgres_data:

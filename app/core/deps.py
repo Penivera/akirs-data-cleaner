@@ -1,11 +1,11 @@
-from typing import Generator, Optional
+from typing import AsyncGenerator, Optional
 
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import SessionLocal
+from app.core.database import AsyncSessionLocal
 from app.core.models import User
 from app.core.security import ACCESS_TOKEN_TYPE, decode_token
 
@@ -18,17 +18,14 @@ _credentials_error = HTTPException(
 )
 
 
-def get_db() -> Generator[Session, None, None]:
-    db = SessionLocal()
-    try:
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    async with AsyncSessionLocal() as db:
         yield db
-    finally:
-        db.close()
 
 
-def get_current_user(
+async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ) -> User:
     if credentials is None or not credentials.credentials:
         raise _credentials_error
@@ -50,7 +47,7 @@ def get_current_user(
     except (TypeError, ValueError):
         raise _credentials_error
 
-    user = db.get(User, user_id)
+    user = await db.get(User, user_id)
     if user is None or not user.is_active:
         raise _credentials_error
 

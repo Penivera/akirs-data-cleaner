@@ -2,14 +2,30 @@
 import logging
 import os
 import time
-from typing import Set
+from typing import Optional, Set
 
 from app.core.config import settings
 
 logger = logging.getLogger("app.cleanup")
 
 
-def cleanup_stale_files() -> dict:
+async def remove_uploaded_file(saved_path: Optional[str]) -> None:
+    """Delete an uploaded source file once its processing result is ready.
+
+    Called as a hook whenever a cleaned output is produced, so the original
+    upload does not linger in uploads/ indefinitely.
+    """
+    if not saved_path:
+        return
+    try:
+        if os.path.exists(saved_path):
+            os.remove(saved_path)
+            logger.info("Removed uploaded file %s (result ready)", saved_path)
+    except OSError as exc:
+        logger.warning("Failed to remove uploaded file %s: %r", saved_path, exc)
+
+
+async def cleanup_stale_files() -> dict:
     """
     Delete files older than settings.cleanup_max_age_hours from uploads/,
     cleaned/, and reports/ directories.
@@ -51,7 +67,7 @@ def cleanup_stale_files() -> dict:
                 pass
 
     # Also clean up expired state entries
-    _cleanup_state_entries(cutoff)
+    await _cleanup_state_entries(cutoff)
 
     logger.info(
         "Cleanup complete: uploads=%d cleaned=%d reports=%d errors=%d",
@@ -83,12 +99,12 @@ def _maybe_delete_file(
         logger.warning("Failed to delete %s: %r", fpath, exc)
 
 
-def _cleanup_state_entries(cutoff: float) -> None:
+async def _cleanup_state_entries(cutoff: float) -> None:
     """Remove expired work items and tasks from the database."""
     from app.core import repository as repo
 
     try:
-        deleted = repo.purge_older_than(cutoff)
+        deleted = await repo.purge_older_than(cutoff)
         if deleted:
             logger.info("Purged %d expired work item(s)/task(s).", deleted)
     except Exception as exc:  # pragma: no cover - defensive

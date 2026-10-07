@@ -6,14 +6,16 @@ source of truth. Each state object is stored as a JSON blob keyed by
 ``(kind, id)``; a few fields are duplicated into indexed columns for filtering
 by user and for the cleanup job.
 
-All functions open a short-lived session and are safe to call from the event
-loop or from worker threads.
+All functions open a short-lived async session and are safe to call from the
+event loop.
 """
 import json
 import time
 from typing import Any, Dict, List, Optional, Type
 
-from app.core.database import SessionLocal
+from sqlalchemy import select
+
+from app.core.database import AsyncSessionLocal
 from app.core.models import Task, WorkItem
 from app.core.state import AnalysisState, FileState, IntelSyncState, NubanState
 
@@ -45,11 +47,10 @@ def _load(kind: str, raw: str) -> Any:
 # --- work items ------------------------------------------------------------
 
 
-def put(kind: str, state: Any) -> None:
+async def put(kind: str, state: Any) -> None:
     """Insert or update a work item."""
-    db = SessionLocal()
-    try:
-        row = db.get(WorkItem, state.id)
+    async with AsyncSessionLocal() as db:
+        row = await db.get(WorkItem, state.id)
         if row is None:
             row = WorkItem(id=state.id, kind=kind)
             db.add(row)
@@ -58,58 +59,46 @@ def put(kind: str, state: Any) -> None:
         row.uploaded_at = getattr(state, "uploaded_at", 0.0) or 0.0
         row.status = getattr(state, "status", None)
         row.data = _dump(state)
-        db.commit()
-    finally:
-        db.close()
+        await db.commit()
 
 
-def get(kind: str, state_id: str) -> Optional[Any]:
+async def get(kind: str, state_id: str) -> Optional[Any]:
     """Fetch a single work item, or None if it is missing/for another kind."""
-    db = SessionLocal()
-    try:
-        row = db.get(WorkItem, state_id)
+    async with AsyncSessionLocal() as db:
+        row = await db.get(WorkItem, state_id)
         if row is None or row.kind != kind:
             return None
         return _load(kind, row.data)
-    finally:
-        db.close()
 
 
-def list_for_user(kind: str, user_id: int) -> List[Any]:
+async def list_for_user(kind: str, user_id: int) -> List[Any]:
     """All work items of a kind belonging to one user, newest first."""
-    db = SessionLocal()
-    try:
-        rows = (
-            db.query(WorkItem)
-            .filter(WorkItem.kind == kind, WorkItem.user_id == user_id)
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(WorkItem)
+            .where(WorkItem.kind == kind, WorkItem.user_id == user_id)
             .order_by(WorkItem.uploaded_at.asc())
-            .all()
         )
+        rows = result.scalars().all()
         return [_load(kind, row.data) for row in rows]
-    finally:
-        db.close()
 
 
-def delete(kind: str, state_id: str) -> None:
-    db = SessionLocal()
-    try:
-        row = db.get(WorkItem, state_id)
+async def delete(kind: str, state_id: str) -> None:
+    async with AsyncSessionLocal() as db:
+        row = await db.get(WorkItem, state_id)
         if row is not None and row.kind == kind:
-            db.delete(row)
-            db.commit()
-    finally:
-        db.close()
+            await db.delete(row)
+            await db.commit()
 
 
 # --- background tasks ------------------------------------------------------
 
 
-def set_task(
+async def set_task(
     task_id: str, file_id: str, user_id: Optional[int], status: str, message: str
 ) -> None:
-    db = SessionLocal()
-    try:
-        row = db.get(Task, task_id)
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Task, task_id)
         if row is None:
             row = Task(id=task_id)
             db.add(row)
@@ -118,17 +107,14 @@ def set_task(
         row.status = status
         row.message = message
         row.updated_at = time.time()
-        db.commit()
-    finally:
-        db.close()
+        await db.commit()
 
 
-def update_task(
+async def update_task(
     task_id: str, *, message: Optional[str] = None, status: Optional[str] = None
 ) -> None:
-    db = SessionLocal()
-    try:
-        row = db.get(Task, task_id)
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Task, task_id)
         if row is None:
             return
         if message is not None:
@@ -136,15 +122,12 @@ def update_task(
         if status is not None:
             row.status = status
         row.updated_at = time.time()
-        db.commit()
-    finally:
-        db.close()
+        await db.commit()
 
 
-def get_task(task_id: str) -> Optional[Dict[str, Any]]:
-    db = SessionLocal()
-    try:
-        row = db.get(Task, task_id)
+async def get_task(task_id: str) -> Optional[Dict[str, Any]]:
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Task, task_id)
         if row is None:
             return None
         return {
@@ -153,24 +136,21 @@ def get_task(task_id: str) -> Optional[Dict[str, Any]]:
             "user_id": row.user_id,
             "message": row.message,
         }
-    finally:
-        db.close()
 
 
 # --- maintenance -----------------------------------------------------------
 
 
-def purge_older_than(cutoff: float) -> int:
+async def purge_older_than(cutoff: float) -> int:
     """Delete work items and tasks older than ``cutoff`` (epoch seconds)."""
-    db = SessionLocal()
-    try:
-        deleted = db.query(WorkItem).filter(
-            WorkItem.uploaded_at < cutoff
-        ).delete(synchronize_session=False)
-        deleted += db.query(Task).filter(
-            Task.updated_at < cutoff
-        ).delete(synchronize_session=False)
-        db.commit()
+    from sqlalchemy import delete
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            delete(WorkItem).where(WorkItem.uploaded_at < cutoff)
+        )
+        deleted = result.rowcount
+        result = await db.execute(delete(Task).where(Task.updated_at < cutoff))
+        deleted += result.rowcount
+        await db.commit()
         return deleted
-    finally:
-        db.close()

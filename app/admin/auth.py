@@ -1,8 +1,8 @@
-from sqlalchemy import func
+from sqlalchemy import func, select
 from starlette.requests import Request
 from starlette_admin.auth import AdminUser, AuthProvider, LoginFailed
 
-from app.core.database import SessionLocal
+from app.core.database import AsyncSessionLocal
 from app.core.models import User
 from app.core.security import verify_password
 from app.services.audit import log_audit
@@ -15,9 +15,11 @@ class AdminAuthProvider(AuthProvider):
         self, username: str, password: str, remember_me: bool, request: Request
     ):
         email = (username or "").strip().lower()
-        db = SessionLocal()
-        try:
-            user = db.query(User).filter(func.lower(User.email) == email).first()
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(User).where(func.lower(User.email) == email)
+            )
+            user = result.scalars().first()
             if (
                 user is None
                 or not user.is_active
@@ -25,7 +27,7 @@ class AdminAuthProvider(AuthProvider):
                 or not user.is_superuser
                 or not verify_password(password, user.hashed_password)
             ):
-                log_audit(
+                await log_audit(
                     "admin_login",
                     status="failed",
                     detail=f"Invalid credentials for {email}",
@@ -33,18 +35,15 @@ class AdminAuthProvider(AuthProvider):
                 )
                 raise LoginFailed("Invalid email or password")
             request.session["admin_user_id"] = user.id
-            log_audit("admin_login", user=user, status="success", request=request)
-        finally:
-            db.close()
+            await log_audit("admin_login", user=user, status="success", request=request)
 
     async def authenticate(self, request: Request) -> AdminUser | None:
         user_id = request.session.get("admin_user_id")
         if not user_id:
             return None
 
-        db = SessionLocal()
-        try:
-            user = db.get(User, user_id)
+        async with AsyncSessionLocal() as db:
+            user = await db.get(User, user_id)
             if (
                 user is not None
                 and user.is_active
@@ -52,18 +51,13 @@ class AdminAuthProvider(AuthProvider):
                 and user.is_superuser
             ):
                 return AdminUser(username=user.email)
-        finally:
-            db.close()
         return None
 
     async def logout(self, request: Request):
         user_id = request.session.get("admin_user_id")
         if user_id:
-            db = SessionLocal()
-            try:
-                user = db.get(User, user_id)
+            async with AsyncSessionLocal() as db:
+                user = await db.get(User, user_id)
                 if user is not None:
-                    log_audit("admin_logout", user=user, status="success", request=request)
-            finally:
-                db.close()
+                    await log_audit("admin_logout", user=user, status="success", request=request)
         request.session.clear()

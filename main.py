@@ -2,12 +2,13 @@ import logging
 import secrets
 from contextlib import asynccontextmanager
 
-from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from fastapi import Depends, FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, RedirectResponse
-from sqlalchemy import func
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from urllib.parse import urlsplit
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -19,7 +20,7 @@ from app.api.analytics import router as analytics_router
 from app.api.nuban import router as nuban_router
 from app.api.intelligence import router as intelligence_router
 from app.core.config import settings
-from app.core.database import SessionLocal, init_db
+from app.core.database import AsyncSessionLocal, init_db
 from app.core.deps import get_current_user
 from app.core.executor import shutdown_executor
 from app.core.models import User
@@ -30,12 +31,12 @@ logger = logging.getLogger("app.startup")
 logging.basicConfig(level=logging.INFO)
 
 
-def seed_superuser() -> None:
+async def seed_superuser() -> None:
     """Create the superuser on first run, and keep it in sync with ADMIN_* config."""
-    db = SessionLocal()
-    try:
+    async with AsyncSessionLocal() as db:
         email = settings.admin_email.strip().lower()
-        user = db.query(User).filter(func.lower(User.email) == email).first()
+        result = await db.execute(select(User).where(func.lower(User.email) == email))
+        user = result.scalars().first()
 
         if user is None:
             password = settings.admin_password or secrets.token_urlsafe(12)
@@ -48,7 +49,12 @@ def seed_superuser() -> None:
                 is_superuser=True,
             )
             db.add(user)
-            db.commit()
+            try:
+                await db.commit()
+            except IntegrityError:
+                # Another worker seeded the superuser concurrently.
+                await db.rollback()
+                return
 
             if settings.admin_password:
                 logger.info("Seeded superuser %s", user.email)
@@ -80,14 +86,9 @@ def seed_superuser() -> None:
             changed = True
 
         if changed:
-            db.commit()
+            await db.commit()
             logger.info("Reconciled superuser %s from ADMIN_* configuration", user.email)
-    finally:
-        db.close()
 
-
-init_db()
-seed_superuser()
 
 if settings.secret_key == "change-me-in-production" or len(settings.secret_key) < 32:
     logger.warning(
@@ -98,9 +99,13 @@ if settings.secret_key == "change-me-in-production" or len(settings.secret_key) 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Startup: create tables and seed the superuser before serving requests.
+    await init_db()
+    await seed_superuser()
+
     # Startup: start the cleanup scheduler
     if settings.cleanup_enabled:
-        scheduler = BackgroundScheduler()
+        scheduler = AsyncIOScheduler()
         scheduler.add_job(
             cleanup_stale_files,
             trigger=IntervalTrigger(hours=settings.cleanup_interval_hours),
@@ -115,7 +120,7 @@ async def lifespan(app: FastAPI):
             settings.cleanup_max_age_hours,
         )
         # Run once at startup to catch anything stale
-        cleanup_stale_files()
+        await cleanup_stale_files()
     else:
         logger.info("Cleanup job is disabled.")
     yield
