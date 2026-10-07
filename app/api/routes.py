@@ -8,6 +8,7 @@ from io import BytesIO
 from typing import Dict, Any, List
 
 from app.core import repository as repo
+from app.core.config import settings
 from app.core.deps import get_current_user
 from app.core.executor import run_cpu
 from app.core.models import User

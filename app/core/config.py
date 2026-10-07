@@ -97,6 +97,51 @@ class Settings(BaseSettings):
         description="Number of one-time recovery codes generated when 2FA is enabled"
     )
 
+    # --- File handling -------------------------------------------------
+
+    max_upload_size_mb: int = Field(
+        default=50,
+        validation_alias="MAX_UPLOAD_SIZE_MB",
+        description="Maximum upload file size in megabytes"
+    )
+
+    allowed_extensions: str = Field(
+        default=".xlsx,.xls,.csv",
+        validation_alias="ALLOWED_EXTENSIONS",
+        description="Comma-separated list of allowed file extensions"
+    )
+
+    # --- Cleanup job ---------------------------------------------------
+
+    cleanup_enabled: bool = Field(
+        default=True,
+        validation_alias="CLEANUP_ENABLED",
+        description="Enable the daily file cleanup background job"
+    )
+
+    cleanup_max_age_hours: int = Field(
+        default=24,
+        validation_alias="CLEANUP_MAX_AGE_HOURS",
+        description="Files older than this many hours will be deleted by the cleanup job"
+    )
+
+    cleanup_interval_hours: int = Field(
+        default=24,
+        validation_alias="CLEANUP_INTERVAL_HOURS",
+        description="How often the cleanup job runs, in hours"
+    )
+
+    # --- Performance ---------------------------------------------------
+
+    processing_threads: int = Field(
+        default=2,
+        validation_alias="PROCESSING_THREADS",
+        description=(
+            "Size of the dedicated thread pool used for CPU-bound file processing. "
+            "Keep this small: each concurrent job can load a whole workbook into memory."
+        )
+    )
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 settings = Settings()
