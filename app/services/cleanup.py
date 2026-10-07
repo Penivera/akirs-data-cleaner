@@ -69,6 +69,11 @@ async def cleanup_stale_files() -> dict:
     # Also clean up expired state entries
     await _cleanup_state_entries(cutoff)
 
+    # Also clean up expired coworking files that have exceeded their TTL
+    expired_cowork = await cleanup_expired_cowork_files()
+    if expired_cowork:
+        deleted_counts["uploads"] += expired_cowork
+
     logger.info(
         "Cleanup complete: uploads=%d cleaned=%d reports=%d errors=%d",
         deleted_counts["uploads"],
@@ -77,6 +82,31 @@ async def cleanup_stale_files() -> dict:
         deleted_counts["errors"],
     )
     return deleted_counts
+
+
+async def cleanup_expired_cowork_files() -> int:
+    """Delete coworking space files whose TTL has expired from the filesystem and state."""
+    from app.core import repository as repo
+
+    now = time.time()
+    deleted = 0
+    try:
+        items = await repo.list_all(repo.KIND_SPACE_FILE)
+        for state in items:
+            expires_at = getattr(state, "expires_at", 0.0)
+            if expires_at and now >= expires_at:
+                saved_path = getattr(state, "saved_path", None)
+                if saved_path and os.path.exists(saved_path):
+                    try:
+                        os.remove(saved_path)
+                        logger.info("Deleted expired coworking upload: %s", saved_path)
+                    except OSError as exc:
+                        logger.warning("Failed to delete expired file %s: %r", saved_path, exc)
+                await repo.delete(repo.KIND_SPACE_FILE, state.id)
+                deleted += 1
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("Failed to purge expired coworking files: %r", exc)
+    return deleted
 
 
 def _maybe_delete_file(

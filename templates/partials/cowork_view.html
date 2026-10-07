@@ -1,0 +1,67 @@
+<header style="margin-bottom: 2rem;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap;">
+        <div>
+            <h2 style="font-family: var(--font-heading); font-size: 2rem; font-weight: 800; color: var(--primary); margin-bottom: 0.5rem;">
+                Coworking Spaces
+            </h2>
+            <p style="color: #64748b;">
+                Collaborative workspaces to upload datasets, invite team members, preview records live without downloads, and run bulk cleaning via Celery.
+            </p>
+        </div>
+        <button type="button" class="btn btn-primary" onclick="const f=document.getElementById('new-space-box'); f.style.display = f.style.display === 'none' ? 'block' : 'none';">
+            + New Space
+        </button>
+    </div>
+</header>
+
+<!-- Inline Space Creation Box -->
+<div id="new-space-box" class="glass-panel" style="display: none; margin-bottom: 2rem; padding: 1.5rem; border-radius: 0.75rem; border: 1px solid #cbd5e1; background: white;">
+    <h3 style="font-family: var(--font-heading); font-size: 1.15rem; color: var(--primary); margin-bottom: 0.75rem;">Create a New Coworking Space</h3>
+    <form hx-post="/api/cowork/spaces" hx-target="#main-content" style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+        <input type="text" name="name" required placeholder="e.g. Audit Unit Delta - 2026 Batch"
+               maxlength="80"
+               style="flex: 1; min-width: 260px; padding: 0.65rem 0.9rem; border: 1px solid #cbd5e1; border-radius: 0.5rem; font-size: 0.95rem;">
+        <button type="submit" class="btn btn-primary">Create Space</button>
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('new-space-box').style.display='none';">Cancel</button>
+    </form>
+</div>
+
+<!-- Spaces Grid -->
+<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.5rem;">
+    {% for space in spaces %}
+    <div class="file-card" style="border-top: 4px solid var(--primary); display: flex; flex-direction: column; justify-content: space-between; gap: 1.25rem;">
+        <div>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.5rem;">
+                <h3 style="font-family: var(--font-heading); font-size: 1.25rem; font-weight: 700; color: var(--primary); word-break: break-word;">
+                    {{ space.name }}
+                </h3>
+                {% if space.owner_id == user.id %}
+                <span class="badge" style="background: #e0f2fe; color: #0369a1; font-weight: 600;">Owner</span>
+                {% else %}
+                <span class="badge" style="background: #f1f5f9; color: #475569; font-weight: 600;">Member</span>
+                {% endif %}
+            </div>
+            <p style="font-size: 0.85rem; color: #64748b;">
+                Created {{ space.created_at.strftime('%b %d, %Y') if space.created_at else 'recently' }}
+            </p>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+            <button class="btn btn-primary" hx-get="/api/cowork/spaces/{{ space.id }}" hx-target="#main-content">
+                Open Space &rarr;
+            </button>
+        </div>
+    </div>
+    {% else %}
+    <div style="grid-column: 1 / -1; background: white; border: 1px dashed #cbd5e1; border-radius: 0.75rem; text-align: center; padding: 3.5rem 1.5rem; color: #64748b;">
+        <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="margin: 0 auto 1rem; display: block; color: #94a3b8;">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
+        </svg>
+        <p style="font-weight: 600; font-size: 1.1rem; color: #334155;">No Coworking Spaces Found</p>
+        <p style="font-size: 0.9rem; margin-top: 0.35rem;">Create a space or join one via invite link to collaborate on dataset cleaning.</p>
+        <button type="button" class="btn btn-primary" style="margin-top: 1.25rem;" onclick="const f=document.getElementById('new-space-box'); f.style.display='block'; f.scrollIntoView({behavior:'smooth'});">
+            + Create Your First Space
+        </button>
+    </div>
+    {% endfor %}
+</div>

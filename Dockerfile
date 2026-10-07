@@ -30,6 +30,9 @@ RUN useradd -m -u 1000 appuser && \
 # Copy application code into container
 COPY --chown=appuser:appuser . .
 
+# Ensure start script is executable
+RUN chmod +x /app/scripts/start.sh
+
 USER appuser
 
 EXPOSE 8080
@@ -37,7 +40,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:${PORT:-8080}/auth || exit 1
 
-# NOTE: --preload is intentionally omitted. It imports the app (and opens DB
-# connections) in the master before forking; inherited connections are unsafe
-# with SQLite across worker processes. Each worker imports the app itself.
-CMD ["sh", "-c", "gunicorn main:app -w ${WORKERS:-2} -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT:-8080} --access-logfile -"]
+CMD ["/app/scripts/start.sh"]

@@ -273,6 +273,40 @@ class IntelSyncState:
         self.verify_db_fuzzy = False
 
 
+class SpaceFileState(FileState):
+    """A file uploaded into a coworking space.
+
+    Extends FileState with coworking-specific bookkeeping: which space it
+    belongs to, who uploaded it, and when it must be removed from the mounted
+    upload filesystem (TTL).
+    """
+
+    space_id: str
+    uploaded_by: Optional[int]
+    ttl_hours: int
+    expires_at: float
+    processed_by: Optional[int]
+    processed_at: float
+    result_filename: Optional[str]
+
+    def __init__(self):
+        super().__init__()
+        self.space_id = ""
+        self.uploaded_by = None
+        self.ttl_hours = 0
+        self.expires_at = 0.0
+        self.processed_by = None
+        self.processed_at = 0.0
+        self.result_filename = None
+
+
+def get_space_upload_dir(space_id: str) -> str:
+    """Return the per-space upload directory, creating it if needed."""
+    path = os.path.join("uploads", "cowork", str(space_id))
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
 def get_user_upload_dir(user_id: int) -> str:
     """Return the per-user upload directory, creating it if needed."""
     path = os.path.join("uploads", str(user_id))

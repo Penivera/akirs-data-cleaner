@@ -6,34 +6,40 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     env_file:
       - .env
     environment:
       APP_ENV: production
-      DATABASE_URL: postgresql://akirs:${POSTGRES_PASSWORD:-akirs}@db:5432/akirs
+      DATABASE_URL: ${DATABASE_URL:-sqlite+aiosqlite:///app/data/akirs.db}
+      REDIS_URL: ${REDIS_URL:-redis://host.docker.internal:6379/0}
+      START_CELERY_WORKER: "true"
     volumes:
-      # Persist uploaded source files across container restarts
       - uploads:/app/uploads
-    depends_on:
-      db:
-        condition: service_healthy
+      - cleaned:/app/cleaned
+      - data:/app/data
 
-  db:
-    image: postgres:16-alpine
-    container_name: akirs-db
+  celery:
+    build: .
+    image: akirs:latest
+    container_name: akirs-celery
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - .env
     environment:
-      POSTGRES_USER: akirs
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-akirs}
-      POSTGRES_DB: akirs
+      APP_ENV: production
+      DATABASE_URL: ${DATABASE_URL:-sqlite+aiosqlite:///app/data/akirs.db}
+      REDIS_URL: ${REDIS_URL:-redis://host.docker.internal:6379/0}
+    command: ["celery", "-A", "app.tasks", "worker", "--loglevel=INFO", "-c", "2"]
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U akirs -d akirs"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+      - uploads:/app/uploads
+      - cleaned:/app/cleaned
+      - data:/app/data
 
 volumes:
   uploads:
-  postgres_data:
+  cleaned:
+  data:

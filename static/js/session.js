@@ -32,8 +32,37 @@
         }
     }
 
-    function loadInitialView() {
+    async function loadInitialView() {
         loadAccountProfile();
+
+        if (location.pathname.startsWith('/cowork/join/')) {
+            const token = location.pathname.split('/cowork/join/')[1].split('/')[0];
+            try {
+                const res = await auth.apiFetch('/api/cowork/join/' + token, { method: 'POST' });
+                if (res.ok) {
+                    const data = await res.json();
+                    window.history.replaceState({}, '', '/app');
+                    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+                    document.getElementById('nav-cowork')?.classList.add('active');
+                    if (window.htmx) {
+                        window.htmx.ajax('GET', '/api/cowork/spaces/' + data.space_id, { target: '#main-content' });
+                        return;
+                    }
+                }
+            } catch (e) {}
+        }
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const spaceId = urlParams.get('space');
+        if (spaceId) {
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            document.getElementById('nav-cowork')?.classList.add('active');
+            if (window.htmx) {
+                window.htmx.ajax('GET', '/api/cowork/spaces/' + encodeURIComponent(spaceId), { target: '#main-content' });
+                return;
+            }
+        }
+
         if (window.htmx) window.htmx.ajax('GET', '/api/view/process', { target: '#main-content' });
     }
     if (document.readyState === 'loading') {

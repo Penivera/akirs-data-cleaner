@@ -137,6 +137,67 @@ class Settings(BaseSettings):
         description="How often the cleanup job runs, in hours"
     )
 
+    # --- Coworking spaces ----------------------------------------------
+
+    cowork_min_ttl_hours: int = Field(
+        default=1,
+        validation_alias="COWORK_MIN_TTL_HOURS",
+        description="Minimum number of hours a coworking upload may stay on the filesystem",
+    )
+
+    cowork_max_ttl_hours: int = Field(
+        default=720,
+        validation_alias="COWORK_MAX_TTL_HOURS",
+        description="Maximum number of hours (30 days) a coworking upload may stay",
+    )
+
+    public_base_url: str = Field(
+        default="http://localhost:8080",
+        validation_alias="PUBLIC_BASE_URL",
+        description="Public base URL used to build coworking share links",
+    )
+
+    # --- Celery / Redis -------------------------------------------------
+
+    redis_url: str = Field(
+        default="redis://localhost:6379/0",
+        validation_alias="REDIS_URL",
+        description="Redis connection URL used as the Celery broker and result backend",
+    )
+
+    # --- Email notifications ---------------------------------------------
+
+    smtp_host: Optional[str] = Field(
+        default=None,
+        validation_alias="SMTP_HOST",
+        description="SMTP server host; email notifications are disabled when unset",
+    )
+    smtp_port: int = Field(
+        default=587,
+        validation_alias="SMTP_PORT",
+        description="SMTP server port",
+    )
+    smtp_user: Optional[str] = Field(
+        default=None,
+        validation_alias="SMTP_USER",
+        description="SMTP username (login)",
+    )
+    smtp_password: Optional[str] = Field(
+        default=None,
+        validation_alias="SMTP_PASSWORD",
+        description="SMTP password",
+    )
+    smtp_from: Optional[str] = Field(
+        default=None,
+        validation_alias="SMTP_FROM",
+        description="From address used for notification emails",
+    )
+    smtp_tls: bool = Field(
+        default=True,
+        validation_alias="SMTP_TLS",
+        description="Use STARTTLS when connecting to the SMTP server",
+    )
+
     # --- Performance ---------------------------------------------------
 
     processing_threads: int = Field(

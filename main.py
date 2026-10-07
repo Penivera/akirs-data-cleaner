@@ -19,6 +19,7 @@ from app.api.routes import router as main_router
 from app.api.analytics import router as analytics_router
 from app.api.nuban import router as nuban_router
 from app.api.intelligence import router as intelligence_router
+from app.api.cowork import router as cowork_router
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, init_db
 from app.core.deps import get_current_user
@@ -174,6 +175,7 @@ app.include_router(main_router, dependencies=protected)
 app.include_router(analytics_router, dependencies=protected)
 app.include_router(nuban_router, dependencies=protected)
 app.include_router(intelligence_router, dependencies=protected)
+app.include_router(cowork_router, dependencies=protected)
 
 # Starlette Admin (own session-based auth, superusers only)
 setup_admin(app)

@@ -17,18 +17,26 @@ from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
 from app.core.models import Task, WorkItem
-from app.core.state import AnalysisState, FileState, IntelSyncState, NubanState
+from app.core.state import (
+    AnalysisState,
+    FileState,
+    IntelSyncState,
+    NubanState,
+    SpaceFileState,
+)
 
 KIND_FILE = "file"
 KIND_ANALYSIS = "analysis"
 KIND_NUBAN = "nuban"
 KIND_INTEL = "intel"
+KIND_SPACE_FILE = "space_file"
 
 _KIND_TO_CLASS: Dict[str, Type[Any]] = {
     KIND_FILE: FileState,
     KIND_ANALYSIS: AnalysisState,
     KIND_NUBAN: NubanState,
     KIND_INTEL: IntelSyncState,
+    KIND_SPACE_FILE: SpaceFileState,
 }
 
 
@@ -91,6 +99,30 @@ async def delete(kind: str, state_id: str) -> None:
             await db.commit()
 
 
+async def list_all(kind: str) -> List[Any]:
+    """All work items of a kind, regardless of user (used by maintenance jobs)."""
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(WorkItem).where(WorkItem.kind == kind)
+        )
+        rows = result.scalars().all()
+        return [_load(kind, row.data) for row in rows]
+
+
+async def list_space_files(space_id: str) -> List[Any]:
+    """All files uploaded into one coworking space, newest first."""
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(WorkItem)
+            .where(WorkItem.kind == KIND_SPACE_FILE)
+            .order_by(WorkItem.uploaded_at.asc())
+        )
+        states = [
+            _load(KIND_SPACE_FILE, row.data) for row in result.scalars().all()
+        ]
+        return [state for state in states if state.space_id == space_id]
+
+
 # --- background tasks ------------------------------------------------------
 
 
@@ -135,6 +167,30 @@ async def get_task(task_id: str) -> Optional[Dict[str, Any]]:
             "file_id": row.file_id,
             "user_id": row.user_id,
             "message": row.message,
+        }
+
+
+async def get_active_task(file_or_space_id: str) -> Optional[Dict[str, Any]]:
+    """Return the most recent in-progress ('queued' or 'processing') task."""
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(Task)
+            .where(
+                Task.file_id == file_or_space_id,
+                Task.status.in_(["queued", "processing"]),
+            )
+            .order_by(Task.updated_at.desc())
+        )
+        row = result.scalars().first()
+        if row is None:
+            return None
+        return {
+            "id": row.id,
+            "status": row.status,
+            "file_id": row.file_id,
+            "user_id": row.user_id,
+            "message": row.message,
+            "updated_at": row.updated_at,
         }
 
 

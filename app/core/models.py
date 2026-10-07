@@ -145,3 +145,49 @@ class AuditLog(Base):
 
     def __repr__(self) -> str:
         return f"<AuditLog {self.action} user={self.user_email}>"
+
+
+class Space(Base):
+    """A coworking space: an owner shares files with members for live viewing
+    and collaborative processing."""
+
+    __tablename__ = "spaces"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(255))
+    share_token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+    members: Mapped[List["SpaceMember"]] = relationship(
+        back_populates="space", cascade="all, delete-orphan"
+    )
+
+    def __repr__(self) -> str:
+        return f"<Space {self.name} owner={self.owner_id}>"
+
+
+class SpaceMember(Base):
+    """An existing user granted access to a coworking space."""
+
+    __tablename__ = "space_members"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    space_id: Mapped[str] = mapped_column(
+        ForeignKey("spaces.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+    space: Mapped["Space"] = relationship(back_populates="members")
+
+    def __repr__(self) -> str:
+        return f"<SpaceMember space={self.space_id} user={self.user_id}>"

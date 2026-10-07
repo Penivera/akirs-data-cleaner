@@ -35,6 +35,7 @@ def auth_page(request: Request):
 
 
 @router.get('/app', response_class=HTMLResponse)
-def workspace_page(request: Request):
+@router.get('/cowork/join/{token}', response_class=HTMLResponse)
+def workspace_page(request: Request, token: str = ""):
     """Public shell with no data; the guarded JS loads content with the bearer token."""
     return templates.TemplateResponse(request=request, name='index.html')

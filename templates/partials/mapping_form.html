@@ -1,4 +1,4 @@
-<form class="mapping-form" hx-post="/api/mapping/{{ file.id }}" hx-target="#file-{{ file.id }}" hx-swap="outerHTML"
+<form class="mapping-form" hx-post="{% if mapping_base %}{{ mapping_base }}{% else %}/api{% endif %}/mapping/{{ file.id }}" hx-target="{% if mapping_base %}#file-card-{{ file.id }}{% else %}#file-{{ file.id }}{% endif %}" hx-swap="outerHTML"
     style="background: white; border: 1px solid #e2e8f0; border-radius: 0.75rem; padding: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); margin-top: 1.5rem;">
     <h3
         style="font-family: var(--font-heading); font-size: 1.5rem; font-weight: 700; color: var(--primary); margin-bottom: 1.5rem; border-bottom: 2px solid var(--primary-light); padding-bottom: 0.5rem;">
@@ -7,13 +7,13 @@
     <!-- Segmented Preset Selection -->
     <div class="preset-selector">
         <button type="button" class="preset-tab {% if file.preset_name == 'retail' %}active{% endif %}"
-            hx-post="/api/components/mapping/{{ file.id }}?preset=retail" hx-target="closest form"
+            hx-post="{% if mapping_base %}{{ mapping_base }}{% else %}/api{% endif %}/components/mapping/{{ file.id }}?preset=retail" hx-target="closest form"
             hx-swap="outerHTML">Bank Data</button>
         <button type="button" class="preset-tab {% if file.preset_name == 'intelligence' %}active{% endif %}"
-            hx-post="/api/components/mapping/{{ file.id }}?preset=intelligence" hx-target="closest form"
+            hx-post="{% if mapping_base %}{{ mapping_base }}{% else %}/api{% endif %}/components/mapping/{{ file.id }}?preset=intelligence" hx-target="closest form"
             hx-swap="outerHTML">Intelligence Gathering</button>
         <button type="button" class="preset-tab {% if file.preset_name == 'custom' %}active{% endif %}"
-            hx-post="/api/components/mapping/{{ file.id }}?preset=custom" hx-target="closest form"
+            hx-post="{% if mapping_base %}{{ mapping_base }}{% else %}/api{% endif %}/components/mapping/{{ file.id }}?preset=custom" hx-target="closest form"
             hx-swap="outerHTML">Custom Configuration</button>
     </div>
     <input type="hidden" name="preset_name" value="{{ file.preset_name }}">
