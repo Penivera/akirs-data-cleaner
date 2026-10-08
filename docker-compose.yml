@@ -29,6 +29,9 @@ services:
       - .env
     environment:
       APP_ENV: production
+      # Supplied by Coolify (the managed Postgres connection string). The
+      # compose fails fast if it is missing rather than silently using SQLite.
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set to the managed Postgres URL}
       REDIS_URL: redis://redis:6379/0
       START_CELERY_WORKER: "true"
     depends_on:
@@ -52,6 +55,7 @@ services:
       - .env
     environment:
       APP_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set to the managed Postgres URL}
       REDIS_URL: redis://redis:6379/0
     depends_on:
       redis:
