@@ -104,7 +104,16 @@
 (() => {
     // Polling for active Celery bulk task
     const spaceId = "{{ space.id }}";
-    let pollInterval = null;
+
+    // Re-entering the space re-runs this script; tear down any previous loop so
+    // polling loops and body listeners cannot accumulate across navigations.
+    if (window.__coworkPollInterval) {
+        clearInterval(window.__coworkPollInterval);
+        window.__coworkPollInterval = null;
+    }
+    if (window.__coworkTaskHandler) {
+        document.body.removeEventListener('coworkTaskStarted', window.__coworkTaskHandler);
+    }
 
     function checkActiveTask() {
         const auth = window.AKIRSAuth;
@@ -118,8 +127,8 @@
                     banner.style.display = 'block';
                     document.getElementById('cowork-task-msg').textContent = task.message || 'Processing files...';
                     document.getElementById('cowork-task-status').textContent = task.status.toUpperCase();
-                    if (!pollInterval) {
-                        pollInterval = setInterval(checkActiveTask, 2000);
+                    if (!window.__coworkPollInterval) {
+                        window.__coworkPollInterval = setInterval(checkActiveTask, 2000);
                     }
                 } else {
                     if (banner.style.display === 'block') {
@@ -129,9 +138,9 @@
                             window.htmx.ajax('GET', '/api/cowork/spaces/' + spaceId, { target: '#main-content' });
                         }
                     }
-                    if (pollInterval) {
-                        clearInterval(pollInterval);
-                        pollInterval = null;
+                    if (window.__coworkPollInterval) {
+                        clearInterval(window.__coworkPollInterval);
+                        window.__coworkPollInterval = null;
                     }
                 }
             })
@@ -139,10 +148,11 @@
     }
 
     checkActiveTask();
-    document.body.addEventListener('coworkTaskStarted', () => {
+    window.__coworkTaskHandler = () => {
         const banner = document.getElementById('cowork-task-banner');
         if (banner) banner.style.display = 'block';
-        if (!pollInterval) pollInterval = setInterval(checkActiveTask, 2000);
-    });
+        if (!window.__coworkPollInterval) window.__coworkPollInterval = setInterval(checkActiveTask, 2000);
+    };
+    document.body.addEventListener('coworkTaskStarted', window.__coworkTaskHandler);
 })();
 </script>

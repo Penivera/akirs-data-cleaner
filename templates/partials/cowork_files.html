@@ -2,7 +2,8 @@
     {% if files %}
     <form id="cowork-bulk-form"
           hx-post="/api/cowork/spaces/{{ space.id }}/process"
-          hx-target="#cowork-files-container">
+          hx-target="#cowork-files-container"
+          hx-swap="outerHTML">
         <!-- Toolbar for bulk processing -->
         <div style="background: white; border: 1px solid #e2e8f0; border-radius: 0.75rem; padding: 1rem 1.25rem; margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
             <div style="display: flex; align-items: center; gap: 0.75rem;">

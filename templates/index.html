@@ -7,7 +7,13 @@
     <title>AKIRS Data Ingestion & Cleaner Portal - Akwa Ibom State Internal Revenue Service</title>
     <meta name="description"
         content="Official administrative tool of the Akwa Ibom State Internal Revenue Service (AKIRS) for data manipulation">
-    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="/static/js/htmx.min.js"></script>
+    <script>
+        // Fallback to the CDN if the vendored copy is unavailable.
+        if (!window.htmx) {
+            document.write('<script src="https://unpkg.com/htmx.org@1.9.10"><\/script>');
+        }
+    </script>
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap"
         rel="stylesheet">
@@ -117,7 +123,7 @@
     </div>
 
     <script src="/static/js/auth-core.js"></script>
-    <script src="/static/js/app.js"></script>
+    <script src="/static/js/app.js?v=2"></script>
     <script src="/static/js/session.js?v=2"></script>
 </body>
 

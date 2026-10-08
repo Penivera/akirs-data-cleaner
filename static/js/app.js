@@ -184,11 +184,12 @@ function initProcessingPolling(root = document) {
 
         const pollInterval = setInterval(async () => {
             try {
-                const response = await fetch(`/api/task-status/${taskId}`, {
-                    headers: {
-                        'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`,
-                    },
-                });
+                const auth = window.AKIRSAuth;
+                const response = auth
+                    ? await auth.apiFetch(`/api/task-status/${taskId}`)
+                    : await fetch(`/api/task-status/${taskId}`, {
+                        headers: { 'Authorization': `Bearer ${localStorage.getItem('akirs_access_token') || ''}` },
+                    });
                 if (!response.ok) {
                     clearInterval(pollInterval);
                     return;
@@ -198,7 +199,9 @@ function initProcessingPolling(root = document) {
                 if (task.status === 'done' || task.status === 'failed') {
                     clearInterval(pollInterval);
                     // Refresh the file card via htmx
-                    htmx.trigger(card, 'refreshCard');
+                    if (window.htmx) {
+                        window.htmx.trigger(card, 'refreshcard');
+                    }
                 }
             } catch (e) {
                 clearInterval(pollInterval);

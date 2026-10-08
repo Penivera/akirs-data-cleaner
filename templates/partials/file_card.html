@@ -1,5 +1,8 @@
 <div class="file-card {% if file.preset_name == 'intelligence' %}intelligence-preset{% elif file.preset_name == 'custom' %}custom-preset{% endif %}"
     id="file-{{ file.id }}"
+    hx-get="/api/card/{{ file.id }}"
+    hx-trigger="refreshcard"
+    hx-swap="outerHTML"
     {% if file.status == 'Processing...' %}
     data-processing-task="proc_{{ file.id }}" data-file-id="{{ file.id }}"
     {% endif %}>
@@ -47,7 +50,7 @@
                 ⚠️ {{ file.skipped_records | length }} Skipped
             </button>
             {% endif %}
-            {% set out_filename = file.cleaned_path.split('/')[-1] if file.cleaned_path else (file.original_filename |
+            {% set out_filename = (file.cleaned_path | replace('\\', '/')).split('/')[-1] if file.cleaned_path else (file.original_filename |
             replace('.xlsx', '.csv')) %}
             <button type="button" class="btn btn-accent"
                 onclick="AKIRSAuth.download('/api/download/{{ out_filename }}', '{{ out_filename }}')">
