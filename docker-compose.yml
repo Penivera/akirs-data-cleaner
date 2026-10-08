@@ -1,8 +1,7 @@
 services:
-  # Bundled datastores so the stack does not depend on external Coolify
-  # networking. The Coolify-provisioned Redis/Postgres live on different Docker
-  # networks and their hostnames are not resolvable here
-  # ("Temporary failure in name resolution").
+  # Bundled broker so Celery does not depend on external Coolify networking.
+  # DATABASE_URL is intentionally NOT set here: it is supplied by Coolify's
+  # runtime env file (env_file: .env) pointing at the managed Postgres service.
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -14,21 +13,6 @@ services:
       retries: 5
     volumes:
       - redis-data:/data
-
-  postgres:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: akirs
-      POSTGRES_PASSWORD: ${AKIRS_DB_PASSWORD:-akirs}
-      POSTGRES_DB: akirs
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U akirs -d akirs"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
 
   akirs:
     build: .
@@ -48,14 +32,9 @@ services:
       - .env
     environment:
       APP_ENV: production
-      # Hard-pinned to the bundled datastores; do not interpolate from the
-      # Coolify env, which points at unreachable external hosts.
-      DATABASE_URL: postgresql+asyncpg://akirs:${AKIRS_DB_PASSWORD:-akirs}@postgres:5432/akirs
       REDIS_URL: redis://redis:6379/0
       START_CELERY_WORKER: "true"
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
@@ -73,11 +52,8 @@ services:
       - .env
     environment:
       APP_ENV: production
-      DATABASE_URL: postgresql+asyncpg://akirs:${AKIRS_DB_PASSWORD:-akirs}@postgres:5432/akirs
       REDIS_URL: redis://redis:6379/0
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     command: ["celery", "-A", "app.tasks", "worker", "--loglevel=INFO", "-c", "2"]
@@ -91,4 +67,3 @@ volumes:
   cleaned:
   data:
   redis-data:
-  postgres-data:
