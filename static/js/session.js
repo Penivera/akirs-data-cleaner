@@ -4,6 +4,10 @@
 
     // The workspace is Bearer-only, so guard the shell before rendering anything.
     if (!auth || !auth.isAuthed()) {
+        // Preserve a coworking invite link across the login round-trip.
+        if (location.pathname.startsWith('/cowork/join/')) {
+            auth?.setReturnTo(location.pathname);
+        }
         location.replace('/auth');
         return;
     }

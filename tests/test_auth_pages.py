@@ -183,6 +183,29 @@ def test_signup_then_admin_approval_then_mandatory_2fa():
         assert client.get('/api/auth/me').status_code == 401
 
 
+def test_2fa_setup_secret_is_stable_across_calls():
+    """Revisiting the setup screen must not rotate the pending secret, otherwise
+    the code from a QR the user already scanned is rejected."""
+    with TestClient(app) as client:
+        _approved_user('stable2fa@akirs.local')
+        challenge = _login_challenge(
+            client, {'email': 'stable2fa@akirs.local', 'password': 'UserPass123!'}
+        )
+        assert challenge['setup_required'] is True
+        token = challenge['challenge_token']
+
+        first = client.post('/api/auth/2fa/setup', json={'challenge_token': token})
+        second = client.post('/api/auth/2fa/setup', json={'challenge_token': token})
+        assert first.status_code == 200 and second.status_code == 200
+        assert first.json()['secret'] == second.json()['secret']
+
+        code = pyotp.TOTP(first.json()['secret']).now()
+        enable = client.post(
+            '/api/auth/2fa/enable', json={'challenge_token': token, 'code': code}
+        )
+        assert enable.status_code == 200, enable.text
+
+
 def test_htmx_redirect_and_cross_origin_rejection():
     with TestClient(app) as client:
         response = client.get('/api/view/process', headers={'HX-Request': 'true'})

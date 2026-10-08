@@ -296,9 +296,13 @@ async def setup_2fa(
             detail="Two-factor authentication is already enabled",
         )
 
-    secret = generate_totp_secret()
-    user.pending_totp_secret = secret
-    await db.commit()
+    # Reuse any in-progress secret so revisiting/refreshing the setup screen
+    # does not invalidate a QR the user already scanned. A new secret is only
+    # generated when there is no pending setup.
+    secret = user.pending_totp_secret or generate_totp_secret()
+    if not user.pending_totp_secret:
+        user.pending_totp_secret = secret
+        await db.commit()
 
     otpauth_url = provisioning_uri(secret, user.email)
     await log_audit("2fa_setup_started", user=user, request=request)

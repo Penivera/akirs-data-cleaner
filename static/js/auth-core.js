@@ -9,6 +9,7 @@
     const ACCESS_KEY = 'akirs_access_token';
     const REFRESH_KEY = 'akirs_refresh_token';
     const CHALLENGE_KEY = 'akirs_mfa_challenge';
+    const RETURN_KEY = 'akirs_return_to';
 
     const AUTH_PAGE = '/auth';
     const WORKSPACE_PAGE = '/app';
@@ -37,8 +38,18 @@
         redirectToAuth() {
             if (location.pathname !== AUTH_PAGE) location.replace(AUTH_PAGE);
         },
+        setReturnTo(path) {
+            if (path) sessionStorage.setItem(RETURN_KEY, path);
+        },
+        consumeReturnTo() {
+            const path = sessionStorage.getItem(RETURN_KEY);
+            sessionStorage.removeItem(RETURN_KEY);
+            return path || null;
+        },
         redirectToWorkspace() {
-            location.replace(WORKSPACE_PAGE);
+            // Honour a one-shot destination stashed before login (e.g. a
+            // coworking invite link) so it survives the auth round-trip.
+            location.replace(this.consumeReturnTo() || WORKSPACE_PAGE);
         },
 
         async refreshTokens() {
