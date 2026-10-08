@@ -1,7 +1,8 @@
 services:
   # Bundled broker so Celery does not depend on external Coolify networking.
-  # DATABASE_URL is intentionally NOT set here: it is supplied by Coolify's
-  # runtime env file (env_file: .env) pointing at the managed Postgres service.
+  # DATABASE_URL is supplied by Coolify's runtime env file (env_file: .env) and
+  # points at the managed Postgres; the app/celery join the Coolify network so
+  # that hostname resolves.
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -18,12 +19,8 @@ services:
     build: .
     image: akirs:latest
     restart: unless-stopped
-    # Coolify (Traefik) reaches this container over the internal Docker network,
-    # so no host port is published here. Publishing "8080:8080" previously
-    # collided with other workloads on the server:
-    #   Bind for 0.0.0.0:8080 failed: port is already allocated
-    # Assign a domain to this service in Coolify to expose it publicly.
-    # (For a standalone run without Coolify, add:  ports: - "8080:8080")
+    # Coolify (Traefik) reaches this container over the Coolify network, so no
+    # host port is published here (publishing 8080 collided with coolify-proxy).
     expose:
       - "8080"
     extra_hosts:
@@ -37,6 +34,9 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    networks:
+      - coolify
+      - default
     volumes:
       - uploads:/app/uploads
       - cleaned:/app/cleaned
@@ -57,6 +57,9 @@ services:
       redis:
         condition: service_healthy
     command: ["celery", "-A", "app.tasks", "worker", "--loglevel=INFO", "-c", "2"]
+    networks:
+      - coolify
+      - default
     volumes:
       - uploads:/app/uploads
       - cleaned:/app/cleaned
@@ -67,3 +70,10 @@ volumes:
   cleaned:
   data:
   redis-data:
+
+networks:
+  # Shared Coolify network: lets the app resolve the managed Postgres/proxy.
+  # Override the name with COOLIFY_NETWORK if your Coolify uses a different one.
+  coolify:
+    external: true
+    name: ${COOLIFY_NETWORK:-coolify}
