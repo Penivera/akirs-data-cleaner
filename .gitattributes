@@ -1,0 +1,6 @@
+# Normalize line endings across platforms.
+# Shell scripts MUST stay LF: a CRLF shebang (`#!/bin/bash\r`) makes the
+# container entrypoint fail with "no such file or directory" when the image is
+# built from a Windows/CRLF working tree.
+* text=auto
+*.sh text eol=lf

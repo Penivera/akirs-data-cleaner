@@ -33,7 +33,9 @@ services:
       # compose fails fast if it is missing rather than silently using SQLite.
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set to the managed Postgres URL}
       REDIS_URL: redis://redis:6379/0
-      START_CELERY_WORKER: "true"
+      # The dedicated `celery` service runs the worker; do not also start one
+      # inside the web container.
+      START_CELERY_WORKER: "false"
     depends_on:
       redis:
         condition: service_healthy
