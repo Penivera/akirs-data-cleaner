@@ -38,6 +38,7 @@ def process_space_files_task(
     runner_name: Optional[str] = None,
     space_name: str = "",
     notify_email: bool = False,
+    base_url: Optional[str] = None,
 ) -> dict:
     """Celery entry point: run the bulk processing pipeline in this worker."""
     from app.core import repository as repo
@@ -54,6 +55,7 @@ def process_space_files_task(
                 runner_name=runner_name,
                 space_name=space_name,
                 notify_email=notify_email,
+                base_url=base_url,
             )
         )
     except Exception as exc:  # pragma: no cover - defensive

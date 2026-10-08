@@ -70,6 +70,7 @@ async def process_space_files(
     runner_name: Optional[str] = None,
     space_name: str = "",
     notify_email: bool = False,
+    base_url: Optional[str] = None,
 ) -> dict:
     """Process the given space files in bulk, updating the shared task state."""
     await repo.update_task(task_id, message="Starting...", status="processing")
@@ -117,7 +118,7 @@ async def process_space_files(
             runner_name or "there",
             space_name or "Coworking",
             total,
-            settings.public_base_url,
+            base_url or settings.public_base_url,
             space_id,
         )
     return {"done": done, "failed": failed}

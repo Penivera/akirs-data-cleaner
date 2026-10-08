@@ -46,6 +46,21 @@ async def _space_for_user(space_id: str, user_id: int):
     return None
 
 
+def _request_base_url(request: Request) -> str:
+    """Build the public base URL from the live request.
+
+    Prefers X-Forwarded-* headers so the link uses the real domain even when the
+    app sits behind a reverse proxy (Coolify, IIS/ARR, nginx, ...).
+    """
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+    host = (
+        request.headers.get("x-forwarded-host")
+        or request.headers.get("host")
+        or request.url.netloc
+    )
+    return f"{proto.split(',')[0].strip()}://{host.split(',')[0].strip()}"
+
+
 def _space_ctx(request: Request, space, files, members, user: User) -> dict:
     return {
         "request": request,
@@ -54,7 +69,7 @@ def _space_ctx(request: Request, space, files, members, user: User) -> dict:
         "members": members,
         "user": user,
         "presets": PRESETS,
-        "share_link": f"{settings.public_base_url.rstrip('/')}/cowork/join/{space.share_token}",
+        "share_link": f"{_request_base_url(request).rstrip('/')}/cowork/join/{space.share_token}",
         "min_ttl": settings.cowork_min_ttl_hours,
         "max_ttl": settings.cowork_max_ttl_hours,
     }
@@ -417,6 +432,7 @@ async def process_space_files_view(
             runner_name=current_user.full_name or current_user.email,
             space_name=space.name,
             notify_email=notify_email,
+            base_url=_request_base_url(request),
         )
     except Exception:
         # Redis/Celery unavailable: fall back to in-process background execution.
@@ -431,6 +447,7 @@ async def process_space_files_view(
             runner_name=current_user.full_name or current_user.email,
             space_name=space.name,
             notify_email=notify_email,
+            base_url=_request_base_url(request),
         )
 
     return templates.TemplateResponse(
