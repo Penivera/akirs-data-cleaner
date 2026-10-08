@@ -531,6 +531,29 @@ async def get_task_status(task_id: str, current_user: User = Depends(get_current
     }
 
 
+@router.get("/api/card/{file_id}", response_class=HTMLResponse)
+async def get_file_card(
+    request: Request,
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Re-render a single file card (used by HTMX after background processing)."""
+    state = await repo.get(repo.KIND_FILE, file_id)
+    if not state or state.user_id != current_user.id:
+        return "File not found"
+
+    if state.preset_name == "custom":
+        fields = state.custom_fields
+    else:
+        fields = PRESETS.get(state.preset_name, PRESETS["retail"])["fields"]
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/file_card.html",
+        context={"request": request, "file": state, "targets": fields},
+    )
+
+
 @router.post("/api/duplicates/{file_id}", response_class=HTMLResponse)
 async def resolve_duplicates(
     request: Request,
@@ -857,20 +880,24 @@ async def download_batch(
     zip_buffer = BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for selected_file in selected_files:
-            folder, fname = os.path.split(selected_file)
-            # Sanitize
-            safe_fname = os.path.basename(fname).replace("..", "").replace("/", "_").replace("\\", "_")
-            safe_folder = os.path.basename(folder)
+            # download_key looks like "cleaned/{user_id}/{name}" or
+            # "reports/{user_id}/{name}", so inspect the directory segments
+            # rather than only the basename of the parent directory.
+            normalized = selected_file.replace("\\", "/")
+            safe_fname = os.path.basename(normalized).replace("..", "").replace("/", "_").replace("\\", "_")
+            segments = [seg for seg in normalized.split("/") if seg]
 
-            if safe_folder == "cleaned":
+            if "cleaned" in segments[:-1]:
                 file_path = os.path.join(user_cleaned_dir, safe_fname)
-            elif safe_folder == "reports":
+                arc_folder = "cleaned"
+            elif "reports" in segments[:-1]:
                 file_path = os.path.join(user_reports_dir, safe_fname)
+                arc_folder = "reports"
             else:
                 continue
 
             if os.path.exists(file_path):
-                zf.write(file_path, arcname=os.path.join(safe_folder, safe_fname))
+                zf.write(file_path, arcname=os.path.join(arc_folder, safe_fname))
 
     zip_buffer.seek(0)
 

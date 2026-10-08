@@ -85,7 +85,7 @@ async def list_for_user(kind: str, user_id: int) -> List[Any]:
         result = await db.execute(
             select(WorkItem)
             .where(WorkItem.kind == kind, WorkItem.user_id == user_id)
-            .order_by(WorkItem.uploaded_at.asc())
+            .order_by(WorkItem.uploaded_at.desc())
         )
         rows = result.scalars().all()
         return [_load(kind, row.data) for row in rows]
@@ -115,7 +115,7 @@ async def list_space_files(space_id: str) -> List[Any]:
         result = await db.execute(
             select(WorkItem)
             .where(WorkItem.kind == KIND_SPACE_FILE)
-            .order_by(WorkItem.uploaded_at.asc())
+            .order_by(WorkItem.uploaded_at.desc())
         )
         states = [
             _load(KIND_SPACE_FILE, row.data) for row in result.scalars().all()

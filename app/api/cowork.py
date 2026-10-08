@@ -54,7 +54,7 @@ def _space_ctx(request: Request, space, files, members, user: User) -> dict:
         "members": members,
         "user": user,
         "presets": PRESETS,
-        "share_link": f"{settings.public_base_url.rstrip('/')}/api/cowork/join/{space.share_token}",
+        "share_link": f"{settings.public_base_url.rstrip('/')}/cowork/join/{space.share_token}",
         "min_ttl": settings.cowork_min_ttl_hours,
         "max_ttl": settings.cowork_max_ttl_hours,
     }
@@ -516,6 +516,11 @@ async def delete_space_file(
         if state.saved_path and os.path.exists(state.saved_path):
             try:
                 os.remove(state.saved_path)
+            except OSError:
+                pass
+        if state.cleaned_path and os.path.exists(state.cleaned_path):
+            try:
+                os.remove(state.cleaned_path)
             except OSError:
                 pass
         await repo.delete(repo.KIND_SPACE_FILE, file_id)

@@ -757,13 +757,19 @@ def resolve_duplicate_records(
     """Resolve duplicate records by merge strategy or manual selection."""
     if fields is None:
         fields = TARGET_FIELDS
-        
-    duplicate_nubans = {group["nuban"] for group in duplicate_groups}
+
+    # Identify duplicates by group membership (record id), not by the primary
+    # key value. Fuzzy groups key on a display value that need not equal
+    # record["nuban"], so matching on nuban would leave every duplicate in place.
+    duplicate_ids = {
+        rec["id"] for group in duplicate_groups for rec in group["records"]
+    }
+
     final_records: List[Dict[str, Any]] = []
 
     # Keep all records that are not part of duplicate groups.
     for record in records:
-        if record.get("nuban") not in duplicate_nubans:
+        if record.get("id") not in duplicate_ids:
             final_records.append(record)
 
     if decision == "merge":
@@ -781,11 +787,12 @@ def resolve_duplicate_records(
                             break
                 merged_values.append(chosen)
 
+            group_key = group.get("nuban") or group.get("group_id") or "group"
             source_row = min(rec["source_row"] for rec in group_records)
             final_records.append({
-                "id": f"merged-{group['nuban']}",
+                "id": f"merged-{group_key}",
                 "source_row": source_row,
-                "nuban": group["nuban"],
+                "nuban": group_key,
                 "values": merged_values,
             })
     else:
