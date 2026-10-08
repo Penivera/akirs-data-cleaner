@@ -2,10 +2,15 @@ services:
   akirs:
     build: .
     image: akirs:latest
-    container_name: akirs
     restart: unless-stopped
-    ports:
-      - "8080:8080"
+    # Coolify (Traefik) reaches this container over the internal Docker network,
+    # so no host port is published here. Publishing "8080:8080" previously
+    # collided with other workloads on the server:
+    #   Bind for 0.0.0.0:8080 failed: port is already allocated
+    # Assign a domain to this service in Coolify to expose it publicly.
+    # (For a standalone run without Coolify, add:  ports: - "8080:8080")
+    expose:
+      - "8080"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     env_file:
@@ -23,7 +28,6 @@ services:
   celery:
     build: .
     image: akirs:latest
-    container_name: akirs-celery
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
