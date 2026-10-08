@@ -43,6 +43,10 @@ services:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set to the managed Postgres URL}
       REDIS_URL: ${REDIS_URL:?REDIS_URL must be set to the managed Redis URL}
     command: ["celery", "-A", "app.tasks", "worker", "--loglevel=INFO", "-c", "2"]
+    # The image's HEALTHCHECK probes the web port, which this worker never
+    # serves; disable it so Coolify doesn't report the stack as degraded.
+    healthcheck:
+      disable: true
     networks:
       - coolify
     volumes:
