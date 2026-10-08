@@ -1,26 +1,14 @@
 services:
-  # Bundled broker so Celery does not depend on external Coolify networking.
-  # DATABASE_URL is supplied by Coolify's runtime env file (env_file: .env) and
-  # points at the managed Postgres; the app/celery join the Coolify network so
-  # that hostname resolves.
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-    volumes:
-      - redis-data:/data
-
+  # Datastores (Postgres + Redis) are Coolify-managed resources. This compose
+  # only consumes their URLs, supplied via Coolify's env file. The app and
+  # worker join the Coolify network so those hostnames resolve.
   akirs:
     build: .
     image: akirs:latest
     restart: unless-stopped
     # Coolify (Traefik) reaches this container over the Coolify network, so no
     # host port is published here (publishing 8080 collided with coolify-proxy).
+    # Assign a domain to this service in Coolify to expose it publicly.
     expose:
       - "8080"
     extra_hosts:
@@ -29,19 +17,14 @@ services:
       - .env
     environment:
       APP_ENV: production
-      # Supplied by Coolify (the managed Postgres connection string). The
-      # compose fails fast if it is missing rather than silently using SQLite.
+      # Supplied by Coolify (managed Postgres + Redis). Fail fast if missing
+      # instead of silently falling back to SQLite / a local broker.
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set to the managed Postgres URL}
-      REDIS_URL: redis://redis:6379/0
-      # The dedicated `celery` service runs the worker; do not also start one
-      # inside the web container.
+      REDIS_URL: ${REDIS_URL:?REDIS_URL must be set to the managed Redis URL}
+      # Dedicated `celery` service runs the worker; do not also start one here.
       START_CELERY_WORKER: "false"
-    depends_on:
-      redis:
-        condition: service_healthy
     networks:
       - coolify
-      - default
     volumes:
       - uploads:/app/uploads
       - cleaned:/app/cleaned
@@ -58,14 +41,10 @@ services:
     environment:
       APP_ENV: production
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set to the managed Postgres URL}
-      REDIS_URL: redis://redis:6379/0
-    depends_on:
-      redis:
-        condition: service_healthy
+      REDIS_URL: ${REDIS_URL:?REDIS_URL must be set to the managed Redis URL}
     command: ["celery", "-A", "app.tasks", "worker", "--loglevel=INFO", "-c", "2"]
     networks:
       - coolify
-      - default
     volumes:
       - uploads:/app/uploads
       - cleaned:/app/cleaned
@@ -75,10 +54,9 @@ volumes:
   uploads:
   cleaned:
   data:
-  redis-data:
 
 networks:
-  # Shared Coolify network: lets the app resolve the managed Postgres/proxy.
+  # Shared Coolify network: lets the app resolve the managed Postgres/Redis/proxy.
   # Override the name with COOLIFY_NETWORK if your Coolify uses a different one.
   coolify:
     external: true
