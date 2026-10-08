@@ -6,6 +6,23 @@ from app.tasks.celery_app import celery
 from app.services.space_processor import process_space_files
 
 
+async def _run_and_dispose(coro):
+    """Await the coroutine, then drop pooled DB connections.
+
+    The async engine's connection pool is process-global, but every Celery task
+    runs in a fresh event loop via ``asyncio.run``. A pooled asyncpg connection
+    is bound to the loop that created it, so reusing it from the next task's
+    loop raises "attached to a different loop". Disposing the pool inside the
+    same loop that used it avoids that.
+    """
+    from app.core.database import engine
+
+    try:
+        return await coro
+    finally:
+        await engine.dispose()
+
+
 def _run_async(coro):
     """Run an async coroutine, handling both Celery worker threads and active event loops."""
     try:
@@ -16,9 +33,9 @@ def _run_async(coro):
     if loop and loop.is_running():
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            return pool.submit(asyncio.run, coro).result()
+            return pool.submit(asyncio.run, _run_and_dispose(coro)).result()
     else:
-        return asyncio.run(coro)
+        return asyncio.run(_run_and_dispose(coro))
 
 
 @celery.task(
