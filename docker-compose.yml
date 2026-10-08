@@ -1,4 +1,19 @@
 services:
+  # Bundled broker so Celery does not depend on external Coolify networking.
+  # The Coolify-provisioned Redis lives on a different Docker network and its
+  # hostname is not resolvable here ("Temporary failure in name resolution").
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - redis-data:/data
+
   akirs:
     build: .
     image: akirs:latest
@@ -18,8 +33,13 @@ services:
     environment:
       APP_ENV: production
       DATABASE_URL: ${DATABASE_URL:-sqlite+aiosqlite:///app/data/akirs.db}
-      REDIS_URL: ${REDIS_URL:-redis://host.docker.internal:6379/0}
+      # Hard-pinned to the bundled broker above; do not interpolate from the
+      # Coolify env, which points at an unreachable external Redis host.
+      REDIS_URL: redis://redis:6379/0
       START_CELERY_WORKER: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
     volumes:
       - uploads:/app/uploads
       - cleaned:/app/cleaned
@@ -36,7 +56,10 @@ services:
     environment:
       APP_ENV: production
       DATABASE_URL: ${DATABASE_URL:-sqlite+aiosqlite:///app/data/akirs.db}
-      REDIS_URL: ${REDIS_URL:-redis://host.docker.internal:6379/0}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
     command: ["celery", "-A", "app.tasks", "worker", "--loglevel=INFO", "-c", "2"]
     volumes:
       - uploads:/app/uploads
@@ -47,3 +70,4 @@ volumes:
   uploads:
   cleaned:
   data:
+  redis-data:
