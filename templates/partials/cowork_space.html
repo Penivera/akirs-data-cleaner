@@ -1,34 +1,30 @@
-<header style="margin-bottom: 1.5rem;">
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.75rem;">
-        <button class="btn btn-outline" hx-get="/api/cowork/view" hx-target="#main-content" style="padding: 0.45rem 0.85rem; font-size: 0.85rem;">
-            &larr; Back to Spaces
+{% import 'partials/icons.html' as icons %}
+<header style="margin-bottom: 1.5rem;" data-view-path="/app/cowork/{{ space.id }}">
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem;">
+        <button class="btn btn-outline btn-sm" data-nav-path="/app/cowork" hx-get="/api/cowork/view" hx-target="#main-content">
+            {{ icons.icon('arrow-left', 16) }} Back to spaces
         </button>
-        <span class="badge" style="background: #e2e8f0; color: #334155; font-size: 0.8rem;">
-            Space ID: {{ space.id }}
-        </span>
+        <span class="badge badge-neutral">Space ID: {{ space.id }}</span>
     </div>
 
-    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap;">
+    <div class="page-header" style="margin-bottom: 0;">
         <div>
-            <h2 style="font-family: var(--font-heading); font-size: 2rem; font-weight: 800; color: var(--primary); margin-bottom: 0.25rem;">
-                {{ space.name }}
-            </h2>
-            <p style="color: #64748b; font-size: 0.9rem;">
+            <h2>{{ space.name }}</h2>
+            <p>
                 {% if space.owner_id == user.id %}
-                You are the <strong>Owner</strong> of this space.
+                You are the <strong>owner</strong> of this space.
                 {% else %}
-                You are collaborating as a <strong>Member</strong>.
+                You are collaborating as a <strong>member</strong>.
                 {% endif %}
             </p>
         </div>
 
         <!-- Shareable Link Box -->
-        <div style="display: flex; align-items: center; gap: 0.5rem; background: white; border: 1px solid #cbd5e1; border-radius: 0.5rem; padding: 0.4rem 0.6rem; max-width: 440px;">
-            <input type="text" id="cowork-share-url" readonly value="{{ share_link }}"
-                   style="border: none; background: transparent; font-size: 0.8rem; color: #475569; width: 260px; outline: none; overflow: hidden; text-overflow: ellipsis;">
-            <button type="button" class="btn btn-primary" style="padding: 0.35rem 0.65rem; font-size: 0.75rem; white-space: nowrap;"
-                    onclick="navigator.clipboard.writeText(document.getElementById('cowork-share-url').value); this.textContent='✓ Copied!'; setTimeout(()=>this.textContent='📋 Copy Link', 2000);">
-                📋 Copy Link
+        <div class="share-box">
+            <input type="text" id="cowork-share-url" readonly value="{{ share_link }}" aria-label="Shareable invite link">
+            <button type="button" class="btn btn-primary btn-sm" style="white-space: nowrap;"
+                    onclick="navigator.clipboard.writeText(document.getElementById('cowork-share-url').value); const l=this.querySelector('.copy-label'); l.textContent='Copied'; setTimeout(()=>{l.textContent='Copy link';}, 2000);">
+                {{ icons.icon('link', 15) }} <span class="copy-label">Copy link</span>
             </button>
         </div>
     </div>
@@ -46,56 +42,43 @@
           hx-swap="outerHTML"
           enctype="multipart/form-data">
         <div class="drop-area" style="padding: 2rem 1.5rem;">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--primary); margin-bottom: 0.5rem;">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="17 8 12 3 7 8"></polyline>
-                <line x1="12" y1="3" x2="12" y2="15"></line>
-            </svg>
-            <h3 style="font-size: 1.15rem; margin-bottom: 0.25rem;">Bulk Upload Datasets for Coworking</h3>
-            <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 1.25rem;">
-                Select single or multiple Excel (.xlsx, .xls) and CSV files. Files will be mounted for collaborative review and batch processing.
-            </p>
+            {{ icons.icon('upload', 48) }}
+            <h2 style="font-size: 1.2rem;">Bulk upload datasets for coworking</h2>
+            <p style="font-size: 0.9rem;">Select single or multiple Excel (.xlsx, .xls) and CSV files. Files are mounted for collaborative review and batch processing.</p>
 
-            <div style="display: flex; justify-content: center; align-items: center; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 1.25rem;">
-                <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: #334155; font-weight: 600;">
-                    Retention on Filesystem:
-                    <input type="number" name="ttl_hours" min="{{ min_ttl }}" max="{{ max_ttl }}" value="24"
-                           style="width: 70px; padding: 0.35rem 0.5rem; border: 1px solid #cbd5e1; border-radius: 0.375rem; text-align: center; font-size: 0.85rem;">
+            <div class="retention-row">
+                <label for="ttl-{{ space.id }}" class="checkbox-inline" style="font-weight: 600;">
+                    Retention on filesystem
+                    <input type="number" id="ttl-{{ space.id }}" name="ttl_hours" min="{{ min_ttl }}" max="{{ max_ttl }}" value="24" style="width: 72px;">
                     hours
                 </label>
-                <span style="font-size: 0.75rem; color: #94a3b8;">(Min: {{ min_ttl }}h, Max: {{ max_ttl }}h)</span>
+                <span class="file-meta">(min: {{ min_ttl }}h, max: {{ max_ttl }}h)</span>
             </div>
 
-            <div style="display: flex; justify-content: center; gap: 0.75rem;">
-                <label for="coworkFileElem" class="btn btn-primary" style="cursor: pointer;">
-                    Browse Local Files
+            <div style="display: flex; justify-content: center; gap: 0.75rem; flex-wrap: wrap;">
+                <label for="coworkFileElem" class="btn btn-primary upload-pick-btn">
+                    Browse local files
                 </label>
-                <input type="file" id="coworkFileElem" name="files" multiple accept=".xlsx, .xls, .csv" style="display: none;"
-                       onchange="if(this.files.length) { document.getElementById('cowork-file-count').textContent = this.files.length + ' file(s) selected'; document.getElementById('cowork-submit-btn').style.display = 'inline-flex'; }">
-                <button type="submit" id="cowork-submit-btn" class="btn btn-accent" style="display: none;">
-                    Upload Selected Files &rarr;
+                <input type="file" id="coworkFileElem" name="files" multiple accept=".xlsx, .xls, .csv" class="visually-hidden"
+                       onchange="if(this.files.length) { document.getElementById('cowork-file-count').textContent = this.files.length + ' file(s) selected'; document.getElementById('cowork-submit-btn').hidden = false; }">
+                <button type="submit" id="cowork-submit-btn" class="btn btn-accent" hidden>
+                    Upload selected files {{ icons.icon('arrow-right', 16) }}
                 </button>
             </div>
-            <p id="cowork-file-count" style="font-size: 0.8rem; color: var(--primary); margin-top: 0.5rem; font-weight: 600;"></p>
+            <p id="cowork-file-count" class="text-primary" style="font-size: 0.8rem; margin-top: 0.5rem; font-weight: 600;"></p>
         </div>
     </form>
 </section>
 {% endif %}
 
 <!-- Active Processing Status Monitor -->
-<div id="cowork-task-banner" style="display: none; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 0.75rem; padding: 1rem 1.25rem; margin-bottom: 1.5rem;">
-    <div style="display: flex; align-items: center; justify-content: space-between;">
-        <div style="display: flex; align-items: center; gap: 0.75rem;">
-            <div class="spinner" style="width: 20px; height: 20px; border: 2px solid #3b82f6; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></div>
-            <span id="cowork-task-msg" style="font-size: 0.9rem; color: #1e40af; font-weight: 600;">Processing files via Celery worker...</span>
-        </div>
-        <span id="cowork-task-status" class="badge" style="background: #dbeafe; color: #1e40af;">Running</span>
+<div id="cowork-task-banner" class="task-banner" hidden>
+    <div class="task-banner__main">
+        <div class="spinner" aria-hidden="true"></div>
+        <span id="cowork-task-msg" class="task-banner__msg">Processing files via Celery worker…</span>
     </div>
+    <span id="cowork-task-status" class="badge badge-info">Running</span>
 </div>
-
-<style>
-@keyframes spin { to { transform: rotate(360deg); } }
-</style>
 
 <!-- Files Section -->
 {% include 'partials/cowork_files.html' %}
@@ -124,15 +107,15 @@
                 const banner = document.getElementById('cowork-task-banner');
                 if (!banner) return;
                 if (task && (task.status === 'queued' || task.status === 'processing')) {
-                    banner.style.display = 'block';
-                    document.getElementById('cowork-task-msg').textContent = task.message || 'Processing files...';
+                    banner.hidden = false;
+                    document.getElementById('cowork-task-msg').textContent = task.message || 'Processing files…';
                     document.getElementById('cowork-task-status').textContent = task.status.toUpperCase();
                     if (!window.__coworkPollInterval) {
                         window.__coworkPollInterval = setInterval(checkActiveTask, 2000);
                     }
                 } else {
-                    if (banner.style.display === 'block') {
-                        banner.style.display = 'none';
+                    if (!banner.hidden) {
+                        banner.hidden = true;
                         // Task just finished; refresh files
                         if (window.htmx) {
                             window.htmx.ajax('GET', '/api/cowork/spaces/' + spaceId, { target: '#main-content' });
@@ -150,7 +133,7 @@
     checkActiveTask();
     window.__coworkTaskHandler = () => {
         const banner = document.getElementById('cowork-task-banner');
-        if (banner) banner.style.display = 'block';
+        if (banner) banner.hidden = false;
         if (!window.__coworkPollInterval) window.__coworkPollInterval = setInterval(checkActiveTask, 2000);
     };
     document.body.addEventListener('coworkTaskStarted', window.__coworkTaskHandler);

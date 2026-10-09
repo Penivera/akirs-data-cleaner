@@ -1,39 +1,41 @@
-<div id="members-container" class="glass-panel" style="background: white; border: 1px solid #e2e8f0; border-radius: 0.75rem; padding: 1.25rem; margin-bottom: 2rem;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
-        <h4 style="font-family: var(--font-heading); font-size: 1.1rem; color: var(--primary); margin: 0; font-weight: 700;">
-            Team Members ({{ members | length }})
-        </h4>
+{% import 'partials/icons.html' as icons %}
+<div id="members-container" class="panel" style="margin-bottom: 2rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem;">
+        <h3 class="section-title" style="font-size: 1.1rem; margin: 0;">Team members ({{ members | length }})</h3>
         {% if space.owner_id == user.id %}
         <form hx-post="/api/cowork/spaces/{{ space.id }}/invite" hx-target="#members-container" hx-swap="outerHTML"
               style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-            <input type="text" name="identifier" required placeholder="User email or username"
-                   style="padding: 0.45rem 0.75rem; border: 1px solid #cbd5e1; border-radius: 0.375rem; font-size: 0.85rem; min-width: 220px;">
-            <button type="submit" class="btn btn-primary" style="padding: 0.45rem 0.85rem; font-size: 0.85rem;">
-                + Add Member
+            <label class="visually-hidden" for="invite-{{ space.id }}">Invite by email or username</label>
+            <input type="text" id="invite-{{ space.id }}" name="identifier" required placeholder="User email or username"
+                   style="padding: 0.5rem 0.75rem; border: 1px solid var(--field-border); border-radius: var(--radius); font-size: 0.85rem; min-width: 14rem;">
+            <button type="submit" class="btn btn-primary btn-sm">
+                {{ icons.icon('plus', 15) }} Add member
             </button>
         </form>
         {% endif %}
     </div>
 
     {% if invite_error %}
-    <div style="padding: 0.6rem 0.8rem; background: #fef2f2; border: 1px solid #fecaca; border-radius: 0.375rem; color: #b91c1c; font-size: 0.85rem; margin-bottom: 0.75rem;">
-        ⚠️ {{ invite_error }}
+    <div class="alert alert-error">
+        {{ icons.icon('alert', 16) }} {{ invite_error }}
     </div>
     {% endif %}
 
-    <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
+    <div class="member-chips">
         {% for member in members %}
-        <div style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.75rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 2rem; font-size: 0.85rem; color: #334155;">
-            <span style="font-weight: 600;">{{ member.full_name or member.email }}</span>
-            <span style="color: #64748b; font-size: 0.75rem;">({{ member.email }})</span>
+        <div class="member-chip">
+            <span class="member-chip__name">{{ member.full_name or member.email }}</span>
+            <span class="member-chip__email">({{ member.email }})</span>
             {% if space.owner_id == user.id and member.id != space.owner_id %}
-            <button type="button" hx-post="/api/cowork/spaces/{{ space.id }}/remove-member/{{ member.id }}" hx-target="#members-container" hx-swap="outerHTML"
-                    style="background: none; border: none; color: #94a3b8; cursor: pointer; padding: 0 0.2rem; font-size: 1rem; line-height: 1;"
-                    title="Remove member">&times;</button>
+            <button type="button" class="member-chip__remove" hx-post="/api/cowork/spaces/{{ space.id }}/remove-member/{{ member.id }}" hx-target="#members-container" hx-swap="outerHTML"
+                    title="Remove member" aria-label="Remove {{ member.full_name or member.email }}"
+                    hx-confirm="Remove {{ member.full_name or member.email }} from this space?">
+                &times;
+            </button>
             {% endif %}
         </div>
         {% else %}
-        <p style="font-size: 0.85rem; color: #94a3b8; margin: 0;">No members yet. Invite team members by email/username or share the join link below.</p>
+        <p class="file-meta" style="margin: 0;">No members yet. Invite team members by email or username, or share the join link above.</p>
         {% endfor %}
     </div>
 </div>

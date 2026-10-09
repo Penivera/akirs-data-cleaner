@@ -1,18 +1,19 @@
-<form class="mapping-form" hx-post="{% if mapping_base %}{{ mapping_base }}{% else %}/api{% endif %}/mapping/{{ file.id }}" hx-target="{% if mapping_base %}#file-card-{{ file.id }}{% else %}#file-{{ file.id }}{% endif %}" hx-swap="outerHTML"
-    style="background: white; border: 1px solid #e2e8f0; border-radius: 0.75rem; padding: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); margin-top: 1.5rem;">
-    <h3
-        style="font-family: var(--font-heading); font-size: 1.5rem; font-weight: 700; color: var(--primary); margin-bottom: 1.5rem; border-bottom: 2px solid var(--primary-light); padding-bottom: 0.5rem;">
-        Configure Ingestion & Mapping</h3>
+{% import 'partials/icons.html' as icons %}
+<form class="mapping-form" hx-post="{% if mapping_base %}{{ mapping_base }}{% else %}/api{% endif %}/mapping/{{ file.id }}" hx-target="{% if mapping_base %}#file-card-{{ file.id }}{% else %}#file-{{ file.id }}{% endif %}" hx-swap="outerHTML">
+    <h3>Configure Ingestion &amp; Mapping</h3>
 
     <!-- Segmented Preset Selection -->
-    <div class="preset-selector">
+    <div class="preset-selector" role="group" aria-label="Mapping preset">
         <button type="button" class="preset-tab {% if file.preset_name == 'retail' %}active{% endif %}"
+            aria-pressed="{{ 'true' if file.preset_name == 'retail' else 'false' }}"
             hx-post="{% if mapping_base %}{{ mapping_base }}{% else %}/api{% endif %}/components/mapping/{{ file.id }}?preset=retail" hx-target="closest form"
             hx-swap="outerHTML">Bank Data</button>
         <button type="button" class="preset-tab {% if file.preset_name == 'intelligence' %}active{% endif %}"
+            aria-pressed="{{ 'true' if file.preset_name == 'intelligence' else 'false' }}"
             hx-post="{% if mapping_base %}{{ mapping_base }}{% else %}/api{% endif %}/components/mapping/{{ file.id }}?preset=intelligence" hx-target="closest form"
             hx-swap="outerHTML">Intelligence Gathering</button>
         <button type="button" class="preset-tab {% if file.preset_name == 'custom' %}active{% endif %}"
+            aria-pressed="{{ 'true' if file.preset_name == 'custom' else 'false' }}"
             hx-post="{% if mapping_base %}{{ mapping_base }}{% else %}/api{% endif %}/components/mapping/{{ file.id }}?preset=custom" hx-target="closest form"
             hx-swap="outerHTML">Custom Configuration</button>
     </div>
@@ -22,47 +23,40 @@
 
         {% if 'Needs Sheet' in file.status %}
         <div class="mapping-row" style="grid-column: 1 / -1;">
-            <label>TARGET WORKSHEETS (Select at least one)</label>
-            <div
-                style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 10px; background: var(--bg-color); padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0;">
-                <label
-                    style="display: flex; align-items: center; gap: 8px; font-weight: bold; color: var(--primary); grid-column: 1 / -1; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; margin-bottom: 5px;">
+            <label>Target worksheets (select at least one)</label>
+            <div class="subpanel display-grid">
+                <label class="checkbox-inline" style="grid-column: 1 / -1; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; color: var(--primary);">
                     <input type="checkbox"
-                        onchange="const cbs = this.closest('.mapping-row').querySelectorAll('.sheet-cb'); cbs.forEach(cb => cb.checked = this.checked);"
-                        style="accent-color: var(--primary);">
-                    Select All Sheets
+                        onchange="const cbs = this.closest('.mapping-row').querySelectorAll('.sheet-cb'); cbs.forEach(cb => cb.checked = this.checked);">
+                    Select all sheets
                 </label>
                 {% for sheet in file.sheet_names %}
-                <label
-                    style="display: flex; align-items: center; gap: 8px; font-weight: normal; font-size: 13px; color: var(--text-color);">
+                <label class="checkbox-inline" style="font-weight: 400; font-size: 0.82rem;">
                     <input type="checkbox" name="selected_sheets" value="{{ sheet }}" class="sheet-cb" {% if sheet in
-                        file.selected_sheets %}checked{% endif %} style="accent-color: var(--primary);">
+                        file.selected_sheets %}checked{% endif %}>
                     {{ sheet }}
                 </label>
                 {% endfor %}
             </div>
-            <small style="color: #64748b; font-size: 0.75rem; margin-top: 5px; display: block;">This workbook contains
-                multiple sheets. Select which sheets to ingest and process concurrently.</small>
+            <small>This workbook contains multiple sheets. Select which sheets to ingest and process concurrently.</small>
         </div>
         {% else %}
 
         <!-- Output naming pattern and custom setup -->
-        <div class="mapping-row"
-            style="grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.25rem; background: var(--bg-color); padding: 1.25rem; border-radius: 0.5rem; border: 1px solid #e2e8f0; margin-bottom: 1rem;">
-            <div>
-                <label>Output Filename Pattern</label>
-                <input type="text" name="output_pattern" class="fancy-select" value="{{ file.output_pattern }}"
-                     placeholder="{filename}" style="margin-top: 0.25rem;" required>
-                <small style="color: #64748b; font-size: 0.75rem; margin-top: 2px; display: block;">Use
-                    <code>{filename}</code> as a placeholder for the original file name.</small>
+        <div class="config-grid" style="grid-column: 1 / -1;">
+            <div class="mapping-row">
+                <label for="output-pattern-{{ file.id }}">Output filename pattern</label>
+                <input type="text" id="output-pattern-{{ file.id }}" name="output_pattern" class="fancy-select" value="{{ file.output_pattern }}"
+                     placeholder="{filename}" required>
+                <small>Use <code>{filename}</code> as a placeholder for the original file name.</small>
             </div>
 
-            <div>
-                <label>Deduplication & Identity Strategy</label>
-                <select class="fancy-select" style="margin-top: 0.25rem;" onchange="
+            <div class="mapping-row">
+                <label for="dedup-{{ file.id }}">Deduplication &amp; identity strategy</label>
+                <select id="dedup-{{ file.id }}" class="fancy-select" onchange="
                         const val = this.value;
-                        const dl = document.getElementById('duplicate-logic-field');
-                        const pkf = document.getElementById('primary-key-field');
+                        const dl = this.form.querySelector('#duplicate-logic-field');
+                        const pkf = this.form.querySelector('#primary-key-field');
                         if (val === 'weirdly_similar') {
                             dl.value = 'weirdly_similar';
                             pkf.value = '';
@@ -72,36 +66,33 @@
                         }
                     ">
                     <option value="weirdly_similar" {% if file.duplicate_logic=='weirdly_similar' %}selected{% endif %}>
-                        Fuzzy Deduplication (Whole-Row Similarity)</option>
+                        Fuzzy deduplication (whole-row similarity)</option>
                     {% for target in targets %}
                     <option value="{{ target }}" {% if file.duplicate_logic=='primary_key' and
                         file.primary_key_field==target %}selected{% endif %}>
-                        Key-Based Deduplication (via mapped {{ target }})
+                        Key-based deduplication (via mapped {{ target }})
                     </option>
                     {% endfor %}
                 </select>
-                <input type="hidden" name="duplicate_logic" id="duplicate-logic-field"
-                    value="{{ file.duplicate_logic }}">
-                <input type="hidden" name="primary_key_field" id="primary-key-field"
-                    value="{{ file.primary_key_field }}">
-                <small style="color: #64748b; font-size: 0.75rem; margin-top: 2px; display: block;">Group exact key
-                    matches, or run Sorted Neighborhood fuzzy similarity checks on absent keys.</small>
+                <input type="hidden" name="duplicate_logic" id="duplicate-logic-field" value="{{ file.duplicate_logic }}">
+                <input type="hidden" name="primary_key_field" id="primary-key-field" value="{{ file.primary_key_field }}">
+                <small>Group exact key matches, or run Sorted Neighborhood fuzzy similarity checks on absent keys.</small>
             </div>
 
-            <div>
-                <label style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                    <span>Intelligence DB Verification</span>
-                    <span style="font-size: 11px; font-weight: bold; color: var(--accent);">LIVE CHECK</span>
+            <div class="mapping-row">
+                <label style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+                    <span>Intelligence DB verification</span>
+                    <span class="live-tag">LIVE CHECK</span>
                 </label>
-                <div style="margin-top: 0.25rem; display: flex; align-items: center; gap: 10px; background: white; border: 1px solid #cbd5e1; padding: 8px 12px; border-radius: 6px; height: 42px; box-sizing: border-box;">
-                    <input type="checkbox" name="verify_db" value="true" {% if file.verify_db %}checked{% endif %} style="width: 18px; height: 18px; accent-color: var(--primary); cursor: pointer;">
-                    <span style="font-size: 13px; font-weight: 500; color: #334155;">Verify & Deduplicate vs. DB</span>
+                <div class="verify-box">
+                    <input type="checkbox" name="verify_db" value="true" {% if file.verify_db %}checked{% endif %} id="verify-db-{{ file.id }}">
+                    <label for="verify-db-{{ file.id }}" class="checkbox-inline" style="font-weight: 500;">Verify &amp; deduplicate vs. DB</label>
                 </div>
-                
+
                 <div style="margin-top: 0.5rem;">
-                    <label style="font-size: 10px; font-weight: bold; color: #475569; display: block; margin-bottom: 2px;">Search Query Mapped Field:</label>
-                    <select name="verify_db_query_field" class="fancy-select" style="height: 32px; padding: 2px 28px 2px 8px; font-size: 12px; margin: 0; width: 100%; border-radius: 4px;">
-                        <option value="" {% if not file.verify_db_query_field %}selected{% endif %}>Auto-Detect (Name/Email/Phone)</option>
+                    <label class="mini-label" for="vq-{{ file.id }}">Search query mapped field</label>
+                    <select id="vq-{{ file.id }}" name="verify_db_query_field" class="fancy-select btn-sm" style="height: 34px;">
+                        <option value="" {% if not file.verify_db_query_field %}selected{% endif %}>Auto-detect (name/email/phone)</option>
                         {% for target in targets %}
                         <option value="{{ target }}" {% if file.verify_db_query_field == target %}selected{% endif %}>Query by {{ target }}</option>
                         {% endfor %}
@@ -109,44 +100,38 @@
                 </div>
 
                 <div style="margin-top: 0.5rem;">
-                    <label style="font-size: 10px; font-weight: bold; color: #475569; display: block; margin-bottom: 2px;">PROD DB TARGET COLUMN:</label>
-                    <select name="verify_db_target_column" class="fancy-select" style="height: 32px; padding: 2px 28px 2px 8px; font-size: 12px; margin: 0; width: 100%; border-radius: 4px;">
-                        <option value="ANY" {% if file.verify_db_target_column == 'ANY' %}selected{% endif %}>Any Column (Name, Email, or Phone)</option>
-                        <option value="NAME" {% if file.verify_db_target_column == 'NAME' %}selected{% endif %}>Taxpayer Name</option>
-                        <option value="EMAIL" {% if file.verify_db_target_column == 'EMAIL' %}selected{% endif %}>Email Address</option>
-                        <option value="PHONE" {% if file.verify_db_target_column == 'PHONE' %}selected{% endif %}>Phone Number</option>
+                    <label class="mini-label" for="vt-{{ file.id }}">Prod DB target column</label>
+                    <select id="vt-{{ file.id }}" name="verify_db_target_column" class="fancy-select" style="height: 34px;">
+                        <option value="ANY" {% if file.verify_db_target_column == 'ANY' %}selected{% endif %}>Any column (name, email, or phone)</option>
+                        <option value="NAME" {% if file.verify_db_target_column == 'NAME' %}selected{% endif %}>Taxpayer name</option>
+                        <option value="EMAIL" {% if file.verify_db_target_column == 'EMAIL' %}selected{% endif %}>Email address</option>
+                        <option value="PHONE" {% if file.verify_db_target_column == 'PHONE' %}selected{% endif %}>Phone number</option>
                     </select>
                 </div>
 
-                <div style="margin-top: 0.5rem; display: flex; align-items: center; gap: 8px; background: #f8fafc; border: 1px solid #e2e8f0; padding: 6px 10px; border-radius: 4px;">
-                    <input type="checkbox" name="verify_db_fuzzy" value="true" {% if file.verify_db_fuzzy %}checked{% endif %} style="width: 14px; height: 14px; accent-color: var(--primary); cursor: pointer;">
-                    <span style="font-size: 11px; color: #475569; font-weight: 600;">Enable Fuzzy Jaccard Suggestions</span>
-                </div>
-                <small style="color: #64748b; font-size: 0.725rem; margin-top: 5px; display: block;">Query the live database in parallel to flag matching records.</small>
+                <label class="check-inline" style="margin-top: 0.5rem;">
+                    <input type="checkbox" name="verify_db_fuzzy" value="true" {% if file.verify_db_fuzzy %}checked{% endif %}>
+                    <span style="font-size: 0.8rem; font-weight: 600;">Enable fuzzy Jaccard suggestions</span>
+                </label>
+                <small>Query the live database in parallel to flag matching records.</small>
             </div>
         </div>
 
         {% if file.preset_name == 'custom' %}
-        <div class="mapping-row"
-            style="grid-column: 1 / -1; background: #fffbeb; padding: 1.25rem; border-radius: 0.5rem; border: 1px solid #fef3c7; margin-bottom: 1rem;">
-            <label style="color: var(--accent); font-weight: 700;">Custom Mapping Target Fields</label>
-            <input type="text" name="custom_fields" class="fancy-select" value="{{ targets|join(', ') }}"
+        <div class="mapping-row subpanel subpanel-accent" style="grid-column: 1 / -1;">
+            <label class="text-warning" for="custom-fields-{{ file.id }}" style="font-weight: 700;">Custom mapping target fields</label>
+            <input type="text" id="custom-fields-{{ file.id }}" name="custom_fields" class="fancy-select" value="{{ targets|join(', ') }}"
                 hx-post="/api/components/mapping/{{ file.id }}" hx-trigger="keyup changed delay:800ms"
-                hx-target="closest form" hx-swap="outerHTML" style="margin-top: 0.25rem; border-color: var(--accent);"
-                required>
-            <small style="color: #b45309; font-size: 0.75rem; margin-top: 2px; display: block;">Type comma-separated
-                target header labels (e.g. <code>NAME, ADDRESS, PHONE</code>) to dynamically rebuild selectors
-                below.</small>
+                hx-target="closest form" hx-swap="outerHTML" style="border-color: var(--accent-hover);" required>
+            <small>Type comma-separated target header labels (e.g. <code>NAME, ADDRESS, PHONE</code>) to rebuild the selectors below.</small>
         </div>
         {% endif %}
 
         {% if preview_rows %}
         <div style="grid-column: 1 / -1; margin-bottom: 1.5rem;">
-            <label
-                style="color: #475569; font-weight: 700; font-size: 0.875rem; margin-bottom: 8px; display: block;">Data
-                Source Preview (First {{ preview_rows|length }} rows)</label>
+            <label class="mapping-section-label" style="margin-bottom: 0.5rem;">Data source preview (first {{ preview_rows|length }} rows)</label>
             <div class="table-container" style="margin: 0;">
-                <table class="fancy-table" style="margin-bottom: 0;">
+                <table class="fancy-table">
                     <thead>
                         <tr>
                             {% for h in file.headers %}
@@ -159,7 +144,7 @@
                         <tr>
                             {% for i in range(file.headers|length) %}
                             <td>{{ row[i] if i < row|length and row[i] is not none else '' }}</td>
-                                    {% endfor %}
+                            {% endfor %}
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -170,73 +155,69 @@
 
         {% if file.available_branches %}
         <div class="mapping-row" style="grid-column: 1 / -1; margin-bottom: 1rem;">
-            <label>TARGET BRANCHES (Filter Ingestion)</label>
-            <select name="selected_branches" class="fancy-select" multiple style="height: 100px;">
+            <label for="branches-{{ file.id }}">Target branches (filter ingestion)</label>
+            <select id="branches-{{ file.id }}" name="selected_branches" class="fancy-select" multiple style="height: 100px;">
                 {% for branch in file.available_branches %}
-                <option value="{{ branch }}" {% if branch in file.selected_branches %}selected{% endif %}>{{ branch }}
-                </option>
+                <option value="{{ branch }}" {% if branch in file.selected_branches %}selected{% endif %}>{{ branch }}</option>
                 {% endfor %}
             </select>
-            <small style="color: #64748b; font-size: 0.75rem; margin-top: 3px; display: block;">Hold Ctrl / Cmd to
-                select multiple. If configured, only rows matching these branch codes are processed.</small>
+            <small>Hold Ctrl / Cmd to select multiple. If configured, only rows matching these branch codes are processed.</small>
         </div>
         {% endif %}
 
         <!-- Dynamic Column Mappers -->
-        <div
-            style="grid-column: 1 / -1; font-weight: 700; font-size: 0.875rem; color: #475569; margin-top: 0.5rem; margin-bottom: -0.5rem;">
-            Column Mappings</div>
+        <div class="mapping-section-label">Column mappings</div>
         {% for target in targets %}
-        <div class="mapping-row" style="background: #fafafa; padding: 0.75rem; border-radius: 0.5rem; border: 1px solid #f1f5f9;">
-            <label style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                <span style="font-weight: 600; font-size: 0.85rem; color: #334155;">{{ target }}</span>
+        <div class="mapping-row field-mapper">
+            <label class="mapper-label">
+                <span>{{ target }}</span>
                 {% if file.mapped_fields[target] and file.mapped_fields[target] != '__NA__' %}
-                <span style="color: var(--success); font-size: 0.725rem; font-weight: bold;">✓ Auto-mapped</span>
+                <span class="automapped">{{ icons.icon('check', 14) }} Auto-mapped</span>
                 {% endif %}
             </label>
-            
+
             {% set raw_val = file.mapped_fields.get(target, '') %}
             {% set selected_fields = raw_val if raw_val is sequence and raw_val is not string else ([raw_val] if raw_val else []) %}
             {% set field_separator = file.field_separators.get(target, ' ') if file.field_separators else ' ' %}
 
             <details id="picker-{{ file.id }}-{{ target }}" class="generic-field-picker" data-target="{{ target }}" data-max-selected="5" style="position: relative; width: 100%;">
-                <summary class="fancy-select" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; list-style: none; border-color: {{ 'var(--success)' if selected_fields else '#cbd5e1' }}; background: {{ '#f0fdf4' if selected_fields else 'white' }};">
-                    <span class="picker-label" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.85rem; color: {{ '#1e293b' if selected_fields else '#94a3b8' }};">
+                <summary class="fancy-select {% if selected_fields %}is-mapped{% endif %}" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; cursor: pointer;">
+                    <span class="picker-label">
                         {% if selected_fields %}
                             {% if selected_fields[0] == '__NA__' %}
-                                N/A (Column Missing)
+                                N/A (column missing)
                             {% else %}
                                 {{ selected_fields|join(' + ') }}
                             {% endif %}
                         {% else %}
-                            -- Select Column --
+                            -- Select column --
                         {% endif %}
                     </span>
-                    <span style="margin-left: auto; font-weight: 900; font-size: 0.85rem; color: #64748b;">⌄</span>
+                    {{ icons.icon('chevron-down', 16) }}
                 </summary>
-                
-                <div class="picker-values-holder" style="display: none;">
+
+                <div class="picker-values-holder" hidden>
                     {% for selected_header in selected_fields %}
                     <input type="hidden" name="{{ target }}" value="{{ selected_header }}">
                     {% endfor %}
                 </div>
 
-                <div class="picker-overlay" style="position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 50; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; background: white; max-height: 220px; overflow-y: auto; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);">
-                    <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 8px; border-bottom: 1px solid #f1f5f9; padding-bottom: 8px;">
-                        <span style="font-size: 11px; font-weight: bold; color: #64748b; white-space: nowrap;">Separator:</span>
-                        <input type="text" name="separator_{{ target }}" class="fancy-select" value="{{ field_separator }}" placeholder="Space" style="width: 100%; height: 26px; padding: 2px 8px; font-size: 12px; margin: 0;">
+                <div class="picker-overlay">
+                    <div class="picker-sep">
+                        <label for="sep-{{ file.id }}-{{ target }}">Separator</label>
+                        <input type="text" id="sep-{{ file.id }}-{{ target }}" name="separator_{{ target }}" class="fancy-select" value="{{ field_separator }}" placeholder="Space">
                     </div>
-                    
+
                     <!-- N/A missing column option -->
-                    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: #e11d48; font-size: 13px; font-weight: 500; cursor: pointer; border-bottom: 1px solid #f1f5f9; padding-bottom: 8px;">
-                        <input type="checkbox" value="__NA__" {% if '__NA__' in selected_fields %}checked{% endif %} class="picker-na-cb" style="accent-color: #e11d48;">
-                        <span>N/A (Column Missing)</span>
+                    <label class="picker-option is-na">
+                        <input type="checkbox" value="__NA__" {% if '__NA__' in selected_fields %}checked{% endif %} class="picker-na-cb" style="accent-color: var(--danger);">
+                        <span>N/A (column missing)</span>
                     </label>
 
                     {% for header in file.headers %}
-                    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--text-color); font-size: 13px; font-weight: normal; cursor: pointer;">
-                        <input type="checkbox" value="{{ header }}" {% if header in selected_fields and selected_fields[0] != '__NA__' %}checked{% endif %} class="picker-header-cb" style="accent-color: var(--primary);">
-                        <span class="picker-badge-order" style="display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 999px; border: 1px solid #cbd5e1; color: var(--text-color); font-size: 10px; font-weight: bold; background: #fafafa;"></span>
+                    <label class="picker-option">
+                        <input type="checkbox" value="{{ header }}" {% if header in selected_fields and selected_fields[0] != '__NA__' %}checked{% endif %} class="picker-header-cb">
+                        <span class="picker-badge-order"></span>
                         <span>{{ header }}</span>
                     </label>
                     {% endfor %}
@@ -246,7 +227,8 @@
             <script>
                 (() => {
                     const picker = document.getElementById("picker-{{ file.id }}-{{ target }}");
-                    if (!picker) return;
+                    if (!picker || picker.dataset.bound === "true") return;
+                    picker.dataset.bound = "true";
 
                     const maxSelected = Number(picker.dataset.maxSelected || 5);
                     const valueHolder = picker.querySelector(".picker-values-holder");
@@ -254,8 +236,7 @@
                     const summary = picker.querySelector("summary");
                     const naCheckbox = picker.querySelector(".picker-na-cb");
                     const headerCheckboxes = Array.from(picker.querySelectorAll(".picker-header-cb"));
-                    
-                    // Parse initial selections
+
                     let selected = [];
                     if (naCheckbox && naCheckbox.checked) {
                         selected = ["__NA__"];
@@ -265,77 +246,60 @@
 
                     const render = () => {
                         valueHolder.innerHTML = "";
-                        
+
+                        const addHidden = (value) => {
+                            const input = document.createElement("input");
+                            input.type = "hidden";
+                            input.name = "{{ target }}";
+                            input.value = value;
+                            valueHolder.appendChild(input);
+                        };
+
+                        const clearBadge = (badge) => {
+                            badge.textContent = "";
+                            badge.classList.remove("is-active");
+                        };
+
                         if (selected.includes("__NA__")) {
                             if (naCheckbox) naCheckbox.checked = true;
                             headerCheckboxes.forEach(cb => {
                                 cb.checked = false;
-                                const badge = cb.closest("label").querySelector(".picker-badge-order");
-                                badge.textContent = "";
-                                badge.style.background = "#fafafa";
-                                badge.style.borderColor = "#cbd5e1";
-                                badge.style.color = "var(--text-color)";
+                                clearBadge(cb.closest("label").querySelector(".picker-badge-order"));
                             });
-                            
-                            const input = document.createElement("input");
-                            input.type = "hidden";
-                            input.name = "{{ target }}";
-                            input.value = "__NA__";
-                            valueHolder.appendChild(input);
-                            
-                            label.textContent = "N/A (Column Missing)";
-                            label.style.color = "#94a3b8";
-                            summary.style.borderColor = "#cbd5e1";
-                            summary.style.background = "white";
+                            addHidden("__NA__");
+                            label.textContent = "N/A (column missing)";
+                            summary.classList.remove("is-mapped");
+                            summary.classList.add("is-na");
                         } else {
                             if (naCheckbox) naCheckbox.checked = false;
-                            
-                            selected.forEach(value => {
-                                const input = document.createElement("input");
-                                input.type = "hidden";
-                                input.name = "{{ target }}";
-                                input.value = value;
-                                valueHolder.appendChild(input);
-                            });
+                            selected.forEach(value => addHidden(value));
 
                             headerCheckboxes.forEach(cb => {
                                 const order = selected.indexOf(cb.value);
                                 cb.checked = order !== -1;
                                 const badge = cb.closest("label").querySelector(".picker-badge-order");
                                 if (order === -1) {
-                                    badge.textContent = "";
-                                    badge.style.background = "#fafafa";
-                                    badge.style.borderColor = "#cbd5e1";
-                                    badge.style.color = "var(--text-color)";
+                                    clearBadge(badge);
                                 } else {
                                     badge.textContent = String(order + 1);
-                                    badge.style.background = "var(--primary)";
-                                    badge.style.borderColor = "var(--primary)";
-                                    badge.style.color = "white";
+                                    badge.classList.add("is-active");
                                 }
                             });
 
                             if (selected.length) {
                                 label.textContent = selected.join(" + ");
-                                label.style.color = "#1e293b";
-                                summary.style.borderColor = "var(--success)";
-                                summary.style.background = "#f0fdf4";
+                                summary.classList.add("is-mapped");
                             } else {
-                                label.textContent = "-- Select Column --";
-                                label.style.color = "#94a3b8";
-                                summary.style.borderColor = "#cbd5e1";
-                                summary.style.background = "white";
+                                label.textContent = "-- Select column --";
+                                summary.classList.remove("is-mapped");
                             }
+                            summary.classList.remove("is-na");
                         }
                     };
 
                     if (naCheckbox) {
                         naCheckbox.addEventListener("change", () => {
-                            if (naCheckbox.checked) {
-                                selected = ["__NA__"];
-                            } else {
-                                selected = [];
-                            }
+                            selected = naCheckbox.checked ? ["__NA__"] : [];
                             render();
                         });
                     }
@@ -343,7 +307,6 @@
                     headerCheckboxes.forEach(cb => {
                         cb.addEventListener("change", () => {
                             if (cb.checked) {
-                                // Remove N/A if present
                                 selected = selected.filter(val => val !== "__NA__");
                                 if (!selected.includes(cb.value) && selected.length < maxSelected) {
                                     selected.push(cb.value);
@@ -371,9 +334,8 @@
         {% endif %}
 
     </div>
-    <div class="form-actions"
-        style="margin-top: 1.5rem; display: flex; justify-content: flex-end; gap: 1rem; border-top: 1px solid #cbd5e1; padding-top: 1.25rem;">
-        <button type="button" class="btn btn-outline" onclick="this.closest('form').remove()">Cancel</button>
-        <button type="submit" class="btn btn-primary">Save Mapping</button>
+    <div class="form-actions">
+        <button type="button" class="btn btn-outline" onclick="this.form.remove()">Cancel</button>
+        <button type="submit" class="btn btn-primary">{{ icons.icon('save') }} Save mapping</button>
     </div>
 </form>
