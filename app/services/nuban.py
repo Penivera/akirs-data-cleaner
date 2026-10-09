@@ -137,6 +137,15 @@ async def process_nuban_resolution(state: NubanState):
 
         nuban = str(row_list[nuban_idx]).strip() if nuban_idx < len(row_list) else ""
 
+        # Bank exports often carry the account number as a number, which drops
+        # the leading zero and makes a valid account look unresolvable. Restore
+        # it, and keep the corrected value in the output so the file shows the
+        # number that was actually resolved.
+        nuban_digits = "".join(ch for ch in nuban if ch.isdigit())
+        if len(nuban_digits) == 9:
+            nuban = "0" + nuban_digits
+            row_list[nuban_idx] = nuban
+
         if nuban and len(nuban) >= 10:
             resolved_name = await resolve_account(nuban, bank_code)
             if resolved_name:

@@ -1,20 +1,23 @@
-import hashlib
 import os
 import time
 from typing import List
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from app.core import repository as repo
-from app.core.config import settings
 from app.core.deps import get_current_user
 from app.core.executor import run_cpu
 from app.core.models import User
 from app.core.state import AnalysisState, get_user_upload_dir, get_user_reports_dir
-from app.services.analyser import process_analytics, process_cumulative_transactions
+from app.services.analyser import (
+    MOVEMENT_SORT_LABELS,
+    process_analytics,
+    process_cumulative_transactions,
+)
 from app.services.audit import log_audit
+from app.services.uploads import ANALYSING_STATUS, stream_upload_to_disk
 from app.services.validators import validate_upload
 from app.services.cleaner import (
     find_header_row_and_headers_from_rows,
@@ -25,6 +28,9 @@ router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
 DUPLICATE_UPLOAD_WINDOW_SECONDS = 5
+
+#: Orderings the movement register accepts.
+MOVEMENT_SORTS = tuple(MOVEMENT_SORT_LABELS)
 
 
 @router.get("/api/analyse/view", response_class=HTMLResponse)
@@ -40,6 +46,7 @@ async def get_analyse_view(request: Request, current_user: User = Depends(get_cu
 @router.post("/api/analyse/upload", response_class=HTMLResponse)
 async def analyse_upload(
     request: Request,
+    background_tasks: BackgroundTasks,
     file: List[UploadFile] = File(...),
     current_user: User = Depends(get_current_user),
 ):
@@ -52,29 +59,10 @@ async def analyse_upload(
     for f in files_to_process:
         validate_upload(f)
 
-        # Stream file to disk in chunks
         safe_filename = os.path.basename(f.filename).replace("..", "").replace("/", "_").replace("\\", "_")
         temp_path = os.path.join(user_upload_dir, f"analytics_{safe_filename}")
 
-        hasher = hashlib.sha256()
-        file_size = 0
-        max_size_bytes = settings.max_upload_size_mb * 1024 * 1024
-
-        with open(temp_path, "wb") as file_out:
-            while chunk := await f.read(1024 * 1024):  # 1MB chunks
-                file_size += len(chunk)
-                if file_size > max_size_bytes:
-                    file_out.close()
-                    os.remove(temp_path)
-                    from fastapi import HTTPException
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"File size exceeds the maximum allowed size of {settings.max_upload_size_mb}MB",
-                    )
-                hasher.update(chunk)
-                file_out.write(chunk)
-
-        file_hash = hasher.hexdigest()
+        file_hash, file_size = await stream_upload_to_disk(f, temp_path)
 
         is_duplicate = False
         for existing_state in await repo.list_for_user(repo.KIND_ANALYSIS, current_user.id):
@@ -98,36 +86,19 @@ async def analyse_upload(
         state.upload_hash = file_hash
         state.upload_size = file_size
         state.uploaded_at = now
+        state.status = ANALYSING_STATUS
 
-        try:
-            _, sheet_names = await run_cpu(load_tabular_rows, temp_path, "")
-            state.sheet_names = sheet_names
-
-            if len(sheet_names) > 1:
-                state.status = "Needs Sheet"
-            else:
-                if sheet_names:
-                    state.selected_sheets = [sheet_names[0]]
-                rows, _ = await run_cpu(
-                    load_tabular_rows,
-                    temp_path,
-                    state.selected_sheets[0] if state.selected_sheets else "",
-                )
-                if not rows:
-                    state.status = "Error: CSV/Excel file is empty or could not be read."
-                else:
-                    idx, headers = await run_cpu(find_header_row_and_headers_from_rows, rows)
-                    if not headers or idx is None:
-                        state.status = "Error: Could not find header row. Ensure file has at least 3 named columns."
-                    else:
-                        state.headers = [h for h in headers if h]
-                        state.header_row_idx = idx
-                        state.status = "Ready"
-
-        except Exception as e:
-            state.status = f"Error: {str(e)}"
-
+        task_id = f"ana_{state.id}"
         await repo.put(repo.KIND_ANALYSIS, state)
+        await repo.set_task(
+            task_id, state.id, current_user.id, "processing", "Queued for analysis…"
+        )
+        background_tasks.add_task(
+            _analyse_analysis_background,
+            file_id=state.id,
+            user_id=current_user.id,
+            task_id=task_id,
+        )
         processed_states.append(state)
         await log_audit(
             "analyse_upload",
@@ -141,6 +112,81 @@ async def analyse_upload(
         request=request,
         name="partials/analyse_file_cards.html",
         context={"request": request, "files": processed_states},
+    )
+
+
+async def _analyse_analysis_background(file_id: str, user_id: int, task_id: str) -> None:
+    """Detect sheets and headers for an accepted analytics upload."""
+    state = await repo.get(repo.KIND_ANALYSIS, file_id)
+    if not state or state.user_id != user_id:
+        await repo.set_task(task_id, file_id, user_id, "failed", "File not found")
+        return
+
+    try:
+        await repo.update_task(task_id, message="Detecting worksheets…")
+        _, sheet_names = await run_cpu(load_tabular_rows, state.saved_path, "")
+        state.sheet_names = sheet_names
+
+        if len(sheet_names) > 1:
+            state.status = "Needs Sheet"
+        else:
+            if sheet_names:
+                state.selected_sheets = [sheet_names[0]]
+            await repo.update_task(task_id, message="Reading rows…")
+            rows, _ = await run_cpu(
+                load_tabular_rows,
+                state.saved_path,
+                state.selected_sheets[0] if state.selected_sheets else "",
+            )
+            if not rows:
+                state.status = "Error: CSV/Excel file is empty or could not be read."
+            else:
+                idx, headers = await run_cpu(find_header_row_and_headers_from_rows, rows)
+                if not headers or idx is None:
+                    state.status = "Error: Could not find header row. Ensure file has at least 3 named columns."
+                else:
+                    state.headers = [h for h in headers if h]
+                    state.header_row_idx = idx
+                    state.status = "Ready"
+    except Exception as e:
+        state.status = f"Error: {str(e)}"
+
+    # Deleted mid-analysis? repo.put() recreates a missing row, so bail out
+    # rather than resurrecting a file the user removed.
+    if await repo.get(repo.KIND_ANALYSIS, file_id) is None:
+        await repo.set_task(
+            task_id, file_id, user_id, "failed", "Cancelled — file removed"
+        )
+        return
+
+    await repo.put(repo.KIND_ANALYSIS, state)
+    failed = state.status.startswith(("Error", "Failed"))
+    await repo.set_task(
+        task_id, file_id, user_id, "failed" if failed else "done", state.status
+    )
+    await log_audit(
+        "analyse_analysed",
+        user=None,
+        filename=state.original_filename,
+        status=state.status,
+        detail=f"user_id={user_id}",
+    )
+
+
+@router.get("/api/analyse/card/{file_id}", response_class=HTMLResponse)
+async def get_analyse_card(
+    request: Request,
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Re-render one analytics card (used to poll an in-progress analysis)."""
+    state = await repo.get(repo.KIND_ANALYSIS, file_id)
+    if not state or state.user_id != current_user.id:
+        return "File not found"
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/analyse_file_card.html",
+        context={"request": request, "file": state},
     )
 
 
@@ -170,23 +216,29 @@ async def analyse_config(request: Request, file_id: str, current_user: User = De
             )
         # Save actual configuration
         state.config["identity_col"] = form_data.get("identity_col", "")
-        state.config["metric_col"] = form_data.get("metric_col", "")
+        state.config["metric_col"] = form_data.get("metric_col", "").strip()
         state.config["currency_col"] = form_data.get("currency_col", "")
         state.config["flow_type_col"] = form_data.get("flow_type_col", "")
-        state.config["inflow_indicator"] = form_data.get("inflow_indicator", "CR")
-        state.config["outflow_indicator"] = form_data.get(
-            "outflow_indicator", "DR"
-        )
         # Save optional separate credit/debit column selections
-        state.config["credit_col"] = form_data.get("credit_col", "")
-        state.config["debit_col"] = form_data.get("debit_col", "")
+        state.config["credit_col"] = form_data.get("credit_col", "").strip()
+        state.config["debit_col"] = form_data.get("debit_col", "").strip()
         state.config["flow_filter"] = form_data.get("flow_filter", "All")
-        # Handle limit: empty or 0 shows all records.
+        # Handle limit: empty or 0 shows all records. A negative value used to
+        # reach the report as [:limit], which sliced from the end and printed
+        # "TOP -35", so it is rejected here rather than clamped downstream.
         limit_val = form_data.get("limit", "50").strip()
         try:
-            state.config["limit"] = int(limit_val) if limit_val and limit_val != "0" else None
+            parsed_limit = int(limit_val) if limit_val and limit_val != "0" else None
         except ValueError:
-            state.config["limit"] = 50
+            parsed_limit = 50
+        if parsed_limit is not None and parsed_limit < 1:
+            state.config["config_error"] = (
+                "Limit must be 1 or more. Leave it blank to include every record."
+            )
+            parsed_limit = None
+        else:
+            state.config.pop("config_error", None)
+        state.config["limit"] = parsed_limit
         # Handle min_amount_filter: optional
         min_amount_val = form_data.get("min_amount_filter", "").replace(",", "").strip()
         try:
@@ -195,6 +247,28 @@ async def analyse_config(request: Request, file_id: str, current_user: User = De
             )
         except ValueError:
             state.config["min_amount_filter"] = None
+
+        # Movement register: legs recorded individually, never netted. The
+        # threshold is per leg, so a large debit cannot hide behind a small net.
+        threshold_val = (
+            form_data.get("movement_threshold", "").replace(",", "").strip()
+        )
+        try:
+            state.config["movement_threshold"] = (
+                float(threshold_val) if threshold_val and threshold_val != "." else None
+            )
+        except ValueError:
+            state.config["movement_threshold"] = None
+        movement_sort = form_data.get("movement_sort", "credit")
+        state.config["movement_sort"] = (
+            movement_sort if movement_sort in MOVEMENT_SORTS else "credit"
+        )
+        # Default the register's account key to the NUBAN column when one is
+        # mapped, so customers sharing a name are not pooled by default.
+        movement_key = form_data.get("movement_identity_col", "").strip()
+        if not movement_key:
+            movement_key = form_data.get("nuban_col", "").strip()
+        state.config["movement_identity_col"] = movement_key
         state.config["title"] = form_data.get("title", "DATA ANALYSIS REPORT")
         state.config["keep_columns"] = form_data.getlist("keep_columns")
         
@@ -226,13 +300,33 @@ async def analyse_config(request: Request, file_id: str, current_user: User = De
         )
         state.config["nuban_col"] = form_data.get("nuban_col", "")
 
-        # Consider configured when either metric is selected OR both credit+debit are selected, with identity provided
-        has_metric = state.config["metric_col"]
-        has_credit_debit = state.config["credit_col"] and state.config["debit_col"]
-        has_identity = state.config["identity_col"] or state.config["concat_order"]
-        
-        if has_identity and (has_metric or has_credit_debit):
+        # The two amount modes are mutually exclusive, so normalise whichever one
+        # the user chose and clear the other's columns. Without this a stale
+        # selection survives the save and silently wins at report time.
+        mode = form_data.get("amount_mode", "single")
+        if mode not in ("single", "split"):
+            mode = "single"
+        state.config["amount_mode"] = mode
+        if mode == "split":
+            state.config["metric_col"] = ""
+            state.config["flow_type_col"] = ""
+        else:
+            state.config["credit_col"] = ""
+            state.config["debit_col"] = ""
+
+        # A mode is only configured once it has the columns it needs, plus identity.
+        has_identity = bool(state.config["identity_col"] or state.config["concat_order"])
+        if mode == "split":
+            has_amount = bool(state.config["credit_col"] and state.config["debit_col"])
+        else:
+            has_amount = bool(state.config["metric_col"])
+
+        if has_identity and has_amount:
             state.status = "Configured"
+        elif state.status == "Configured":
+            # An edit that leaves the config unsatisfiable must not keep
+            # advertising itself as ready to generate.
+            state.status = "Ready"
 
     await repo.put(repo.KIND_ANALYSIS, state)
     return templates.TemplateResponse(
@@ -348,7 +442,7 @@ async def delete_analyse_file(
             filename=state.original_filename,
             request=request,
         )
-    return Response(status_code=204)
+    return Response(status_code=200)
 
 
 @router.get("/api/analyse/download/{filename}")

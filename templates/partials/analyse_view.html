@@ -1,25 +1,29 @@
+{% import 'partials/icons.html' as icons %}
 <section class="upload-zone" id="analyse-upload-zone">
-    <form id="analyse-upload-form" hx-post="/api/analyse/upload" hx-target="#analyse-file-list" hx-swap="afterbegin"
-        hx-trigger="change from:#analysepfileElem" enctype="multipart/form-data">
+    <form id="analyse-upload-form" class="js-upload-form" hx-post="/api/analyse/upload" hx-target="#analyse-file-list" hx-swap="afterbegin"
+        hx-trigger="change from:#analysepfileElem" enctype="multipart/form-data" aria-label="Upload files for analysis">
         <div class="drop-area">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="17 8 12 3 7 8"></polyline>
-                <line x1="12" y1="3" x2="12" y2="15"></line>
-            </svg>
-            <p>Upload Excel/CSV for advanced analytics</p>
-            <label for="analysepfileElem" class="btn btn-primary upload-pick-btn">Choose File</label>
-            <input type="file" id="analysepfileElem" name="file" multiple accept=".xlsx, .xls, .csv" style="display: none;">
+            {{ icons.icon('chart', 48) }}
+            <h2>Upload Excel/CSV for advanced analytics</h2>
+            <p>Configure identity, metric, currency, and flow fields to generate a ranked transaction report.</p>
+            <label for="analysepfileElem" class="btn btn-primary upload-pick-btn">Choose file</label>
+            <input type="file" id="analysepfileElem" name="file" multiple accept=".xlsx, .xls, .csv" class="visually-hidden">
         </div>
+        {% set upload_status_id = 'upload-status-analyse' %}
+        {% include 'partials/upload_status.html' %}
     </form>
 </section>
 
 <section class="file-list-container">
-    <h2>Analytics Sandbox</h2>
+    <h2 class="section-title">Analytics Sandbox</h2>
     <div id="analyse-file-list" class="file-list">
         {% for file in files %}
         {% include 'partials/analyse_file_card.html' %}
         {% endfor %}
+        <div class="empty-state">
+            {{ icons.icon('chart', 44) }}
+            <strong>No files analysing yet</strong>
+            <p>Upload a workbook above to configure a report.</p>
+        </div>
     </div>
 </section>

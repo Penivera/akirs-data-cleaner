@@ -1,14 +1,18 @@
+{% import 'partials/icons.html' as icons %}
+{% set st = file.status or '' %}
+{% set status_key = 'failed' if ('Failed' in st or st.lower().startswith('error')) else 'processing' if ('Processing' in st or 'Analysing' in st) else 'queued' if 'Queued' in st else 'review' if 'Review' in st else 'mapping' if 'Mapping' in st else 'sheet' if 'Sheet' in st else 'processed' if 'Processed' in st else 'ready' if st == 'Ready' else 'new' %}
+{% set is_running = ('Processing' in st) or ('Analysing' in st) %}
 <div class="file-card {% if file.preset_name == 'intelligence' %}intelligence-preset{% elif file.preset_name == 'custom' %}custom-preset{% endif %}"
     id="file-{{ file.id }}"
     hx-get="/api/card/{{ file.id }}"
     hx-trigger="refreshcard"
     hx-swap="outerHTML"
-    {% if file.status == 'Processing...' %}
-    data-processing-task="proc_{{ file.id }}" data-file-id="{{ file.id }}"
+    {% if is_running %}
+    data-processing-task="{{ 'ana_' if 'Analysing' in st else 'proc_' }}{{ file.id }}" data-file-id="{{ file.id }}"
     {% endif %}>
     <div class="file-header">
         <div class="file-info">
-            <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+            <div class="file-title-row">
                 <span class="file-name">{{ file.original_filename }}</span>
                 {% if file.preset_name == 'retail' %}
                 <span class="badge badge-retail">Retail Preset</span>
@@ -32,57 +36,70 @@
                 {% endif %}
             </div>
 
-            <div class="file-status-indicator status-{{ file.status.split(' ')[0].lower() }}"
-                style="margin-top: 0.5rem;">
-                <span class="status-dot"></span>
+            <div class="file-status-indicator status-{{ status_key }}">
+                <span class="status-dot" aria-hidden="true"></span>
                 <span>{{ file.status }}</span>
             </div>
         </div>
 
-        <div class="file-actions" style="display: flex; gap: 0.5rem; align-items: center;">
-            {% if 'Processed' in file.status %}
+        <div class="file-actions">
+            {% if 'Processed' in st %}
             <button class="btn btn-outline" hx-get="/api/view/{{ file.id }}" hx-target="#data-view-{{ file.id }}">
-                🔍 View Cleaned
+                {{ icons.icon('eye') }} View Cleaned
             </button>
             {% if file.skipped_records %}
             <button class="btn btn-danger" hx-get="/api/view-skipped/{{ file.id }}"
                 hx-target="#data-view-{{ file.id }}">
-                ⚠️ {{ file.skipped_records | length }} Skipped
+                {{ icons.icon('alert') }} {{ file.skipped_records | length }} Skipped
             </button>
             {% endif %}
             {% set out_filename = (file.cleaned_path | replace('\\', '/')).split('/')[-1] if file.cleaned_path else (file.original_filename |
             replace('.xlsx', '.csv')) %}
             <button type="button" class="btn btn-accent"
-                onclick="AKIRSAuth.download('/api/download/{{ out_filename }}', '{{ out_filename }}')">
-                📥 Download
+                data-download-url="/api/download/{{ out_filename }}" data-download-name="{{ out_filename }}">
+                {{ icons.icon('download') }} Download
             </button>
-            {% elif file.status == 'Ready' %}
+            {% elif st == 'Ready' %}
             <button class="btn btn-outline" hx-post="/api/components/mapping/{{ file.id }}"
                 hx-target="#mapping-area-{{ file.id }}">
-                ⚙️ Options
+                {{ icons.icon('sliders') }} Options
             </button>
             <button class="btn btn-primary" hx-post="/api/process/{{ file.id }}" hx-target="#file-{{ file.id }}"
                 hx-swap="outerHTML">
-                🚀 Run Ingestion
+                {{ icons.icon('zap') }} Run Ingestion
             </button>
-            {% elif 'Needs Duplicate Review' in file.status or 'Needs DB Review' in file.status %}
+            {% elif 'Needs Duplicate Review' in st or 'Needs DB Review' in st %}
             <button class="btn btn-outline" hx-post="/api/components/mapping/{{ file.id }}"
                 hx-target="#mapping-area-{{ file.id }}">
-                ⚙️ Options
+                {{ icons.icon('sliders') }} Options
             </button>
-            {% elif 'Needs Mapping' in file.status or 'Needs Sheet' in file.status %}
+            {% elif 'Needs Mapping' in st or 'Needs Sheet' in st %}
             <button class="btn btn-accent" hx-post="/api/components/mapping/{{ file.id }}"
                 hx-target="#mapping-area-{{ file.id }}">
-                🛠️ Map Columns
+                {{ icons.icon('sliders') }} Map Columns
             </button>
             {% endif %}
 
-            <button class="btn btn-danger" hx-delete="/api/delete/{{ file.id }}" hx-target="#file-{{ file.id }}"
-                hx-swap="delete" title="Remove File" style="padding: 0.625rem 0.875rem;">
-                ❌
+            <button type="button" class="btn btn-danger btn-icon" hx-delete="/api/delete/{{ file.id }}"
+                hx-target="#file-{{ file.id }}" hx-swap="delete" title="Remove file"
+                hx-confirm="Delete {{ file.original_filename }}? This also removes any cleaned output and cannot be undone."
+                aria-label="Remove {{ file.original_filename }}">
+                {{ icons.icon('trash') }}
             </button>
         </div>
     </div>
+
+    {% if is_running %}
+    <div class="card-progress">
+        <div class="card-progress__msg">
+            <span class="spinner" aria-hidden="true"></span>
+            <span data-role="task-msg-text" aria-live="polite">Starting…</span>
+        </div>
+        <div class="progress is-indeterminate" role="progressbar" aria-label="Processing in progress">
+            <span class="progress__bar"></span>
+        </div>
+    </div>
+    {% endif %}
 
     <!-- Health Warning Logs Overlay -->
     {% include 'partials/health_report.html' %}
@@ -97,5 +114,5 @@
         {% endif %}
     </div>
 
-    <div id="data-view-{{ file.id }}" class="data-view-area" style="margin-top: 1rem;"></div>
+    <div id="data-view-{{ file.id }}" class="data-view-area"></div>
 </div>

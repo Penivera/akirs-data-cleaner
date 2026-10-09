@@ -1,4 +1,4 @@
-<div class="data-table-container glass-panel" style="margin-top: 1rem; overflow-x: auto;">
+<div class="table-container" style="margin-top: 1rem;">
     {% if rows and rows|length > 0 %}
     <table class="fancy-table">
         <thead>
@@ -18,8 +18,8 @@
             {% endfor %}
         </tbody>
     </table>
-    <p style="font-size: 0.8rem; color: #94a3b8; margin-top: 0.5rem;">Showing top 50 records...</p>
+    <p class="table-note" style="padding: 0 0.9rem 0.75rem;">Showing the first 50 records.</p>
     {% else %}
-    <p style="color: #64748b; font-size: 0.9rem; text-align: center; padding: 2rem;">No records available to display.</p>
+    <p class="table-note" style="padding: 2rem; text-align: center;">No records available to display.</p>
     {% endif %}
 </div>

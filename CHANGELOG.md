@@ -3,6 +3,261 @@
 All notable changes to the AKIRS Data Toolkit are documented here.
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Commit index
+
+| Commit | Summary |
+|---|---|
+| `e61d992` | `chore(docs)` — capture durable product context in `PRODUCT.md` |
+| `ed17e7b` | `refactor(ui)` — rebuild the design system and fix accessibility defects |
+| `05637f9` | `feat(upload)` — accept uploads fast, analyse in the background, and make long work visible |
+| `3466016` | `feat(analyse)` — mutually exclusive amount modes and a movement register |
+| `3702a5d` | `feat(routing)` — make the URL the source of truth for workspace tabs |
+| `b340f1e` | `fix(nuban)` — zero-pad 9-digit NUBANs instead of discarding them |
+
+Detail for each commit follows, grouped by the kind of change it makes.
+
+### Added
+
+#### Nine-digit NUBANs are zero-padded instead of discarded
+Batch ingestion validated NUBAN as "exactly 10 digits", so a 9-digit account
+number was replaced with `N/A` and — because NUBAN is the retail preset's
+primary key — the whole row was skipped and counted in the skipped-records
+report. This is the usual shape of the data: bank exports often carry the
+account number as a number, which drops the leading zero. A 9-digit NUBAN is now
+left-padded to 10 digits, so the row is kept *and* the padded value becomes the
+duplicate-grouping key, meaning `123456789` and `0123456789` are correctly
+treated as one account rather than two. Applies to the retail and custom
+presets wherever a `NUBAN` target is mapped. Other lengths (8 or fewer, 11+)
+are still rejected, and valid 10-digit values are untouched.
+
+The same repair is applied by the NUBAN resolver. It previously required a
+10-character value and stamped anything shorter with the literal text
+`Invalid NUBAN` in the output, so a 9-digit account number from a numeric
+export was never looked up. It is now padded before the lookup, and the
+corrected number is written back to the NUBAN column so the file shows the
+number that was actually resolved. Only the 9-digit case is affected; every
+other input behaves exactly as before.
+
+#### Interface activity feedback
+A large upload or a long resolve used to look identical to a frozen page, so
+the first question a user had was whether the system had hung.
+
+- A global request bar marks any in-flight request, so something is always
+  visibly happening.
+- Uploads report **real byte-level progress** and then switch to an explicit
+  "Uploaded. Analysing the workbook…" phase, because the seconds users actually
+  wait are the ones after the last byte lands.
+- Upload failures are surfaced inline instead of vanishing — including an
+  oversized file, which previously failed with no visible response at all.
+- Buttons show a spinner while busy and a card's other actions are disabled, so
+  a long job cannot be double-fired.
+- Downloads and report opens announce progress and resolve to a success or a
+  clear failure rather than appearing to do nothing until the save dialog.
+- Loading states are accessible: `aria-live` status text, `role="progressbar"`
+  with `aria-valuenow`, an assertive notification region, and
+  `prefers-reduced-motion` support for every loading animation.
+
+### Changed
+
+#### One design system instead of per-screen styling
+Styling had drifted into a dozen inline `style` attributes, hard-coded hexes,
+and two systems layered on top of each other: the app had been dark, then
+turned light, and the dark leftovers were never removed. `static/css/style.css`
+is now a tokenized light system — semantic colours, spacing, radii, shadows,
+focus rings — with the incumbent AKIRS identity preserved (institutional green,
+official gold crest accent).
+
+- **Emoji are no longer used as an icon system.** Every emoji (🔍 📥 ⚙️ 🚀 ❌
+  📦 🗑️ …) is replaced by an authored SVG set in one stroke weight and
+  currentColor, in `templates/partials/icons.html`.
+- Empty, loading and error states now exist for every list and panel, including
+  all four upload queues and the cleaned-datasets gallery.
+- Browser surfaces are themed from the palette rather than left at defaults:
+  text selection, scrollbars, focus rings, and tabular figures in numeric
+  tables.
+- Decorative kicker/eyebrow labels were removed from the auth screens and the
+  thick accent top-border was dropped from cards; badges carry the preset
+  meaning instead, and nested card-in-card framing was flattened.
+
+#### Accessibility brought to WCAG 2.2 AA
+The standard is now a product requirement, not an aspiration.
+
+- The gold accent was used as text on white at **2.1:1**, which fails AA
+  outright. Gold is now only ever a fill; accent wording uses a darker ink
+  token that passes.
+- Functional text below 11px was raised on the auth screens, and the low-contrast
+  muted grey on the page background was brought back over the threshold.
+- Every control has a visible focus ring; icon-only buttons, checkboxes, and
+  member-removal controls now carry accessible names; the active nav item
+  exposes `aria-current="page"`; a skip link precedes the shell.
+- The DB-comparison view collapses from two columns to one on small screens
+  rather than forcing a horizontal squeeze.
+
+#### Analyse: heavy movements are recorded instead of netted away
+A threshold review needs to see large movements. Netting hides them: an account
+that takes in 431M and pays out 431M nets to zero and disappears from a
+net-ranked report. Verified against the Q3 Polaris workbook, 24 accounts moving
+100M or more were absent from the 35-row report for exactly this reason —
+including one with 640M of credit turnover and one with 1.36B.
+
+- Reports now carry a **movement register** alongside the ranked list. Every
+  credit and debit is recorded as its own leg, before any netting, keyed by
+  account (defaulting to the NUBAN column) rather than by name. Each leg carries
+  its source spreadsheet row so a figure can be traced back.
+- A **movement threshold** is applied to each leg separately, so a large debit
+  cannot hide behind a small net. This is the filter a threshold review actually
+  wants, as opposed to `min_amount_filter`, which compares the already-netted
+  per-customer total.
+- The register shows **credit, debit, gross and largest-single** for every
+  account, and can be ordered by any of them, because they answer different
+  questions: credit turnover is the assessable base for turnover tax, gross
+  catches movement in either direction, and the largest single leg catches one
+  extreme transaction.
+- An **offsetting activity** section names accounts whose credit and debit are
+  close enough to cancel — the shape a net-ranked report cannot show. It honours
+  the same threshold as the table above it.
+
+Fixed alongside:
+
+- **A negative limit silently returned the wrong rows.** `-35` reached the report
+  as `[:limit]`, i.e. `[:-35]`, which dropped the 35 smallest and kept 32 — and
+  printed `TOP -35`. Negative limits are now refused and reported back in the
+  form, and any non-positive value reaching the generator is treated as "no
+  limit" rather than a reversed slice.
+- **The register's account key defaults to the NUBAN column**, so customers who
+  share a name are no longer pooled into one taxpayer by default.
+- A threshold now applies to the offsetting section too, rather than being
+  bypassed by it.
+
+Totals and per-account arithmetic are unchanged: regenerating the Q3 report
+reproduces 72 transactions, net NGN 7,224,838,816.19, inflows
+NGN 26,135,545,141.84 and outflows NGN 18,910,706,325.65 exactly.
+
+#### Analyse: "What are we measuring?" is now an explicit choice
+Credit and debit columns were three optional dropdowns sitting beside a
+mandatory metric column, which made a credit/debit file impossible to
+configure: the form refused to save without a metric, and the hint text had to
+explain an interaction that was never actually offered.
+
+- The config form now asks which shape the file has — one amount column, or a
+  credit/debit pair — and shows only that mode's fields. The inactive mode's
+  selects are disabled so they cannot post a stale value, and the active mode's
+  are required, so the form can no longer be blocked by a field the user cannot
+  see.
+- The save guard names the missing column ("Choose Credit column and Debit
+  column before saving.") instead of silently doing nothing.
+- `amount_mode` is stored with the config and is authoritative: whichever mode
+  is chosen, the other one's columns are cleared on save. Before this a stale
+  selection survived an edit and silently won at report time.
+- Configs saved before the choice existed are inferred from their columns, so
+  existing analyses keep producing the same report.
+
+Fixed along the way:
+
+- **An all-empty credit/debit row was booked as a 0.00 inflow.** It fell through
+  to the sign-of-metric branch, was marked as an inflow, and therefore slipped
+  past the "Inflows only" filter. Such a row now belongs to neither direction.
+- **The minimum-amount filter dropped any account netting exactly zero**, because
+  it tested the total for truthiness rather than comparing it.
+- **NUBAN cumulative could not be combined with credit/debit columns.** It
+  demanded a metric column and failed at generate time; it now honours the
+  chosen amount mode.
+- The credit/debit markers defaulted to `INFLOW`/`OUTFLOW` while the engine
+  compared against `CR`/`DR`, so a freshly saved config matched nothing. They now
+  default to empty, since CR and DR are always recognised.
+- Editing a configured file back into an unsatisfiable state now returns it to
+  "Ready" instead of leaving the card offering "Generate output".
+
+#### Tabs are real URLs, so a refresh stays where you were
+The six nav tabs were plain HTMX swaps: the URL never changed, so refreshing
+always bounced back to Batch Process, the Back button never moved between tabs,
+and a link could not be shared to a specific view.
+
+- Each tab now has its own route under `/app` (`/app/process`, `/app/cleaned`,
+  `/app/cowork`, `/app/analyse`, `/app/nuban`, `/app/intel`), and coworking
+  spaces one level deeper (`/app/cowork/<space_id>`). Bare `/app` and unknown
+  paths redirect to the default tab.
+- The server renders the nav with the requested tab already active, so there is
+  no flash of the wrong highlight before the panel loads.
+- `static/js/session.js` owns routing: it reads the path, loads the matching
+  panel, keeps the URL in step via `pushState`, and restores the right view on
+  Back/Forward. htmx's own history cache is deliberately unused — it snapshots
+  the whole document body, which is too heavy for dataset panels.
+- Tabs are now real `<a href>` links, so middle-click, "copy link address", and
+  a no-JS fallback all behave.
+- Invite links (`/cowork/join/<token>`) and the join redirect now resolve to
+  `/app/cowork/<space_id>`, and the pre-login destination keeps the full path
+  (validated same-origin) across the auth round-trip.
+- Coworking keeps the open space while you stay on that tab, and leaving the tab
+  or hitting "Back to spaces" returns to `/app/cowork`.
+
+#### Uploads accept fast and analyse in the background
+Long uploads previously held the request open for the whole job (health audit,
+header detection, field mapping, branch detection). The UI showed nothing while
+that ran, and an oversized or malformed file failed silently.
+
+- All four upload endpoints (`/api/upload`, `/api/analyse/upload`,
+  `/api/nuban/upload`, `/api/intel/upload`) now only validate, stream to disk,
+  and de-duplicate in the request, then hand analysis to a background task.
+  Added `app/services/uploads.py` with the shared streaming/limit helper.
+- Accepted files are created with status `Analysing...` and a tracked task
+  (`ana_{id}`), so the card polls `/api/task-status` and reports its stage
+  ("Running pre-flight health audit…", "Detecting headers…", "Mapping fields…")
+  before refreshing itself with the final result.
+- Filename-based preset detection stays in the request, so the card badge is
+  correct the instant the card appears.
+- New per-card refresh endpoints so every card type can poll itself:
+  `/api/analyse/card/{id}`, `/api/nuban/card/{id}`, `/api/intel/card/{id}`
+  (batch already had `/api/card/{id}`).
+- Analysis completion is recorded in the audit log (`*_analysed`) alongside the
+  existing accept-time entry.
+
+### Fixed
+
+- Deleting a file actually removes it from the screen. HTMX computes its
+  `shouldSwap` as "status < 400 and status != 204", so the delete endpoints'
+  `204 No Content` reply skipped the swap entirely and `hx-swap="delete"` never
+  ran: the file and its data were gone server-side while the card stayed on
+  screen until a manual refresh. The five delete endpoints now answer `200`.
+- A file deleted while a background task was still running no longer comes back
+  from the dead. `repository.put()` recreates a missing row, so a task that
+  finished after the delete would resurrect the work item. Every background
+  path (the four upload analysers, batch ingestion, and coworking bulk
+  processing) now re-checks that the item still exists before writing.
+- Coworking file delete uses an explicit `hx-swap="delete"` rather than relying
+  on an empty `outerHTML` swap to blank the card.
+- Destructive actions (file delete, coworking file delete, member removal) now
+  confirm first and name what will be removed.
+
+- Cards that are analysing or processing no longer get stuck on their loading
+  state until a manual page refresh. HTMX fires `htmx:load` on each swapped-in
+  element, so the file card is itself the event target; the enhancement scan
+  only looked at descendants and therefore never bound the task poll for newly
+  uploaded cards. Root-scoped scans now include the element they are handed.
+
+- The Analyse and NUBAN configuration forms were partly **unreadable on a white
+  background**. Dark-theme leftovers from an earlier revision survived in both
+  forms: near-white `#f8fafc` labels, an `rgba(0,0,0,0.2)` sheet grid, and
+  near-black text on light surfaces. Both forms were rewritten against the
+  light system.
+- File status indicators keyed their colour off the first word of the status
+  label, so `"Needs Mapping"` produced `status-needs` and matched nothing — every
+  "Needs…" state and every in-progress job rendered an invisible dot. Statuses
+  are now normalised through a single mapping.
+- Dragging a file over the upload zone left it with no border or background once
+  the pointer left, because the drag handlers referenced `--glass-border` and
+  `--glass-bg`, two custom properties that never existed.
+- A dozen class names used by the templates had no rule at all
+  (`btn-success`, `btn-warning`, `form-actions`, `file-actions`, `main-content`,
+  `preview-section`, `--accent-light`), which left controls unstyled and panels
+  without their spacing.
+- The mapping form resolved `#duplicate-logic-field` through
+  `document.getElementById`, which returns the *first* match and so read the
+  wrong element once more than one card was open. Handlers are now scoped to
+  their own form.
+
 ## [0.3.0] - 2026-10-02
 
 Production-hardening release: per-user data isolation, automatic cleanup,

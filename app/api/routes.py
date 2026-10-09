@@ -1,14 +1,12 @@
 from fastapi import APIRouter, UploadFile, File, Request, Form, Depends, BackgroundTasks
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
-import hashlib
 import os
 import time
 from io import BytesIO
 from typing import Dict, Any, List
 
 from app.core import repository as repo
-from app.core.config import settings
 from app.core.deps import get_current_user
 from app.core.executor import run_cpu
 from app.core.models import User
@@ -22,6 +20,7 @@ from app.core.state import (
 )
 from app.services.audit import log_audit
 from app.services.cleanup import remove_uploaded_file
+from app.services.uploads import ANALYSING_STATUS, stream_upload_to_disk
 from app.services.validators import validate_upload
 from app.services.cleaner import (
     auto_map_headers,
@@ -44,20 +43,24 @@ DUPLICATE_UPLOAD_WINDOW_SECONDS = 5
 
 @router.get("/", response_class=HTMLResponse)
 async def read_index(request: Request, current_user: User = Depends(get_current_user)):
-    user_files = await repo.list_for_user(repo.KIND_FILE, current_user.id)
-    return templates.TemplateResponse(
-        request=request,
-        name="index.html",
-        context={"request": request, "files": user_files},
-    )
+    # The shell now lives under /app/<tab>; keep the bare root pointing at it.
+    return RedirectResponse("/app/process", status_code=307)
 
 
 @router.post("/api/upload", response_class=HTMLResponse)
 async def upload_file(
     request: Request,
+    background_tasks: BackgroundTasks,
     file: List[UploadFile] = File(...),
     current_user: User = Depends(get_current_user),
 ):
+    """Accept uploads fast, then analyse each one off the request.
+
+    Only validation and the byte stream happen here (so upload progress in the
+    browser is real). Health scanning, header detection, and field mapping run
+    in a background task; the returned card polls ``/api/task-status`` and
+    refreshes itself when the analysis finishes.
+    """
     user_upload_dir = get_user_upload_dir(current_user.id)
 
     files_to_process = file if isinstance(file, list) else [file]
@@ -67,29 +70,10 @@ async def upload_file(
     for f in files_to_process:
         validate_upload(f)
 
-        # Stream file to disk in chunks to avoid loading entire file into memory
         safe_filename = os.path.basename(f.filename).replace("..", "").replace("/", "_").replace("\\", "_")
         temp_path = os.path.join(user_upload_dir, safe_filename)
 
-        hasher = hashlib.sha256()
-        file_size = 0
-        max_size_bytes = settings.max_upload_size_mb * 1024 * 1024
-
-        with open(temp_path, "wb") as file_out:
-            while chunk := await f.read(1024 * 1024):  # 1MB chunks
-                file_size += len(chunk)
-                if file_size > max_size_bytes:
-                    file_out.close()
-                    os.remove(temp_path)
-                    from fastapi import HTTPException
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"File size exceeds the maximum allowed size of {settings.max_upload_size_mb}MB",
-                    )
-                hasher.update(chunk)
-                file_out.write(chunk)
-
-        file_hash = hasher.hexdigest()
+        file_hash, file_size = await stream_upload_to_disk(f, temp_path)
 
         is_duplicate = False
         for existing_state in await repo.list_for_user(repo.KIND_FILE, current_user.id):
@@ -114,10 +98,8 @@ async def upload_file(
         state.upload_size = file_size
         state.uploaded_at = now
 
-        # Run pre-flight health validator (CPU-bound: off the event loop)
-        state.health_report = await run_cpu(pre_flight_validate, temp_path)
-
-        # Smart auto-detection of preset
+        # Cheap filename-based preset detection stays in the request so the card
+        # badge is correct immediately; the rest is analysis.
         if "intel" in f.filename.lower():
             state.preset_name = "intelligence"
             state.duplicate_logic = "weirdly_similar"
@@ -129,39 +111,19 @@ async def upload_file(
             state.primary_key_field = "NUBAN"
             state.output_pattern = "{filename}"
 
-        # Analyze headers (CPU-bound: off the event loop)
-        try:
-            _, sheet_names = await run_cpu(load_tabular_rows, temp_path, "")
-            state.sheet_names = sheet_names
-
-            if len(sheet_names) > 1:
-                state.status = "Needs Sheet"
-            else:
-                state.selected_sheets = [sheet_names[0]] if sheet_names else [""]
-                rows, _ = await run_cpu(load_tabular_rows, temp_path, state.selected_sheets[0])
-                idx, headers = await run_cpu(find_header_row_and_headers_from_rows, rows)
-                state.headers = [h for h in headers if h]
-                state.header_row_idx = idx
-
-                # Run pre-flight check again with sheets if needed
-                state.health_report = await run_cpu(
-                    pre_flight_validate, temp_path, state.selected_sheets[0]
-                )
-
-                mapped_fields, status = auto_map_headers(state.headers, state.preset_name)
-                state.mapped_fields = mapped_fields
-                state.status = status
-                state.available_branches = await run_cpu(
-                    detect_distinct_branches,
-                    state.headers,
-                    rows,
-                    idx,
-                )
-
-        except Exception as e:
-            state.status = f"Error: {str(e)}"
+        state.status = ANALYSING_STATUS
+        task_id = f"ana_{state.id}"
 
         await repo.put(repo.KIND_FILE, state)
+        await repo.set_task(
+            task_id, state.id, current_user.id, "processing", "Queued for analysis…"
+        )
+        background_tasks.add_task(
+            _analyse_file_background,
+            file_id=state.id,
+            user_id=current_user.id,
+            task_id=task_id,
+        )
         processed_states.append(state)
         await log_audit(
             "upload",
@@ -183,6 +145,71 @@ async def upload_file(
         request=request,
         name="partials/file_cards.html",
         context={"request": request, "files": processed_states, "targets": card_targets, "presets": PRESETS},
+    )
+
+
+async def _analyse_file_background(file_id: str, user_id: int, task_id: str) -> None:
+    """Run the batch health audit, header detection, and field mapping."""
+    state = await repo.get(repo.KIND_FILE, file_id)
+    if not state or state.user_id != user_id:
+        await repo.set_task(task_id, file_id, user_id, "failed", "File not found")
+        return
+
+    try:
+        await repo.update_task(task_id, message="Running pre-flight health audit…")
+        state.health_report = await run_cpu(pre_flight_validate, state.saved_path)
+
+        await repo.update_task(task_id, message="Detecting worksheets…")
+        _, sheet_names = await run_cpu(load_tabular_rows, state.saved_path, "")
+        state.sheet_names = sheet_names
+
+        if len(sheet_names) > 1:
+            state.status = "Needs Sheet"
+        else:
+            state.selected_sheets = [sheet_names[0]] if sheet_names else [""]
+            await repo.update_task(task_id, message="Detecting headers…")
+            rows, _ = await run_cpu(load_tabular_rows, state.saved_path, state.selected_sheets[0])
+            idx, headers = await run_cpu(find_header_row_and_headers_from_rows, rows)
+            state.headers = [h for h in headers if h]
+            state.header_row_idx = idx
+
+            # Re-run the pre-flight check against the chosen sheet.
+            state.health_report = await run_cpu(
+                pre_flight_validate, state.saved_path, state.selected_sheets[0]
+            )
+
+            await repo.update_task(task_id, message="Mapping fields…")
+            mapped_fields, status = await run_cpu(
+                auto_map_headers, state.headers, state.preset_name
+            )
+            state.mapped_fields = mapped_fields
+            state.status = status
+            state.available_branches = await run_cpu(
+                detect_distinct_branches, state.headers, rows, idx
+            )
+    except Exception as e:
+        state.status = f"Error: {str(e)}"
+
+    # The user may have deleted this file while the analysis was running.
+    # repo.put() recreates a missing row, so re-check before writing or the
+    # deleted work item would come back from the dead.
+    if await repo.get(repo.KIND_FILE, file_id) is None:
+        await repo.set_task(
+            task_id, file_id, user_id, "failed", "Cancelled — file removed"
+        )
+        return
+
+    await repo.put(repo.KIND_FILE, state)
+    failed = state.status.startswith(("Error", "Failed"))
+    await repo.set_task(
+        task_id, file_id, user_id, "failed" if failed else "done", state.status
+    )
+    await log_audit(
+        "upload_analysed",
+        user=None,
+        filename=state.original_filename,
+        status=state.status,
+        detail=f"user_id={user_id}",
     )
 
 
@@ -381,7 +408,9 @@ async def delete_file(
             filename=state.original_filename,
             request=request,
         )
-    return Response(status_code=204)
+    # 200, not 204: HTMX skips the swap entirely on 204 (its shouldSwap check
+    # excludes 204), which would leave the deleted card on screen.
+    return Response(status_code=200)
 
 
 @router.post("/api/process/{file_id}", response_class=HTMLResponse)
@@ -513,6 +542,14 @@ async def _process_file_background(file_id: str, user_id: int, task_id: str):
     except Exception as e:
         state.status = f"Failed ({str(e)})"
         await repo.set_task(task_id, file_id, user_id, "failed", str(e))
+
+    # Deleted mid-run? repo.put() recreates a missing row, so bail out rather
+    # than resurrecting a file the user removed.
+    if await repo.get(repo.KIND_FILE, file_id) is None:
+        await repo.set_task(
+            task_id, file_id, user_id, "failed", "Cancelled — file removed"
+        )
+        return
 
     await repo.put(repo.KIND_FILE, state)
 

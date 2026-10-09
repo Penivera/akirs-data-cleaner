@@ -23,6 +23,14 @@ FX_RATES = {
     "NGN": 1.0,
 }
 
+#: How the movement register can be ordered, and what each answers.
+MOVEMENT_SORT_LABELS = {
+    "credit": "credit turnover (the assessable base)",
+    "gross": "gross activity (either direction)",
+    "largest": "largest single leg",
+    "net": "net position",
+}
+
 
 def get_fx_rate(curr: str) -> float:
     c = str(curr).strip().upper()
@@ -42,10 +50,32 @@ def generate_markdown_report(
     metric_col = config.get("metric_col")
     currency_col = config.get("currency_col")
     limit_config = config.get("limit", 50)
-    # Handle limit: None, 0, or falsy = show all; otherwise use the number
-    limit = None if (limit_config is None or limit_config == 0) else int(limit_config)
+    # Handle limit: None, 0, or falsy = show all; otherwise use the number.
+    # A negative limit used to reach the slice as [:limit], which drops rows from
+    # the end and printed "TOP -35". Treat any non-positive value as "no limit".
+    if limit_config is None or limit_config == 0:
+        limit = None
+    else:
+        parsed = int(limit_config)
+        limit = parsed if parsed > 0 else None
     keep_columns = config.get("keep_columns", [])
     title = config.get("title", "DATA ANALYSIS REPORT").upper()
+
+    # Movements are recorded as individual legs and never netted away. A customer
+    # whose credit and debit are both 500M has moved 1B and nets to zero, which
+    # a threshold review must not miss.
+    movement_threshold = config.get("movement_threshold", None)
+    movement_threshold = (
+        parse_float(movement_threshold)
+        if movement_threshold not in (None, "")
+        else None
+    )
+    # The movement register is keyed by account where one is mapped, so two
+    # customers sharing a name are never pooled into one taxpayer.
+    movement_identity_col = config.get("movement_identity_col") or config.get("nuban_col")
+    movement_sort = config.get("movement_sort", "credit")
+    if movement_sort not in ("credit", "gross", "largest", "net"):
+        movement_sort = "credit"
 
     concat_order = config.get("concat_order")
     concat_separator = config.get("concat_separator", " ")
@@ -54,7 +84,21 @@ def generate_markdown_report(
     # Support separate credit/debit columns as an alternative to a single flow type column
     credit_col = config.get("credit_col")
     debit_col = config.get("debit_col")
-    # By default, expect transaction types to be credit/debit rather than inflow/outflow.
+    # How the amount moved in each row. The two modes are mutually exclusive and
+    # the user picks one explicitly in the config form, so a half-filled pair can
+    # never silently override a metric column (or be silently ignored).
+    # Older configs predate the choice, so infer it from what they actually set.
+    amount_mode = config.get("amount_mode")
+    if amount_mode not in ("single", "split"):
+        amount_mode = "split" if (credit_col and debit_col) else "single"
+    if amount_mode == "split":
+        # The metric column plays no part in split mode; drop it so a stale
+        # selection cannot leak into keep_columns or the report header.
+        metric_col = None
+    else:
+        # Likewise a stale credit/debit selection must not shadow the metric.
+        credit_col = None
+        debit_col = None
     # Keep existing config keys for backward compatibility but accept common synonyms.
     inflow_indicator = str(config.get("inflow_indicator", "CREDIT")).strip().upper()
     outflow_indicator = str(config.get("outflow_indicator", "DEBIT")).strip().upper()
@@ -63,15 +107,17 @@ def generate_markdown_report(
     if min_amount_filter is not None:
         min_amount_filter = parse_float(min_amount_filter)
 
-    # Allow metric_col to be optional if credit/debit columns are provided
-    has_credit_debit = credit_col and debit_col
     if (not identity_col and not concat_order):
         raise ValueError(
             "Identity column (or concat columns) must be selected."
         )
-    if not metric_col and not has_credit_debit:
+    if amount_mode == "split" and not (credit_col and debit_col):
         raise ValueError(
-            "Either a Metric column or both Credit+Debit columns must be selected."
+            "Split mode needs both a Credit column and a Debit column."
+        )
+    if amount_mode == "single" and not metric_col:
+        raise ValueError(
+            "Single mode needs a metric column to measure."
         )
 
     # Validate header_row_idx
@@ -91,13 +137,25 @@ def generate_markdown_report(
     credit_idx = header_map.get(credit_col) if credit_col else None
     debit_idx = header_map.get(debit_col) if debit_col else None
 
-    # Validate required columns: identity (or concat), and either metric OR both credit+debit
+    # Validate required columns: identity (or concat), plus the columns the
+    # chosen amount mode actually depends on.
     has_identity = id_idx is not None or concat_order
-    has_metric = met_idx is not None
-    has_credit_debit = credit_idx is not None and debit_idx is not None
-    
-    if not has_identity or (not has_metric and not has_credit_debit):
-        raise ValueError("Selected columns not found in dataset")
+    if amount_mode == "split":
+        amount_cols_present = credit_idx is not None and debit_idx is not None
+    else:
+        amount_cols_present = met_idx is not None
+
+    if not has_identity:
+        raise ValueError("Selected identity column not found in dataset")
+    if not amount_cols_present:
+        if amount_mode == "split":
+            raise ValueError("Selected credit or debit column not found in dataset")
+        raise ValueError("Selected metric column not found in dataset")
+
+    # The movement register's own key and columns. Kept separate from the ranked
+    # report's identity so a threshold review is never pooled by name.
+    mv_key_idx = header_map.get(movement_identity_col) if movement_identity_col else None
+    mv_name_idx = header_map.get(identity_col) if identity_col else None
 
     keep_indices = []
     for col in keep_columns:
@@ -106,6 +164,8 @@ def generate_markdown_report(
             metric_col,
             currency_col,
             flow_type_col,
+            credit_col,
+            debit_col,
         ]:
             keep_indices.append((col, header_map[col]))
 
@@ -121,6 +181,22 @@ def generate_markdown_report(
         }
     )
 
+    # One entry per account, holding each leg separately. Movements are never
+    # netted, so a 500M-in/500M-out account still reports 500M of each.
+    movements = defaultdict(
+        lambda: {
+            "credit_total": 0.0,
+            "debit_total": 0.0,
+            "largest_leg": 0.0,
+            "legs": 0,
+            "name": "",
+            "rows": set(),
+        }
+    )
+    # Flat register of individual legs above the threshold, each traceable to
+    # the spreadsheet row it came from.
+    legs: List[Dict[str, Any]] = []
+
     total_analyzed_rows = 0
     total_metric_sums = defaultdict(float)
     total_inflows = defaultdict(float)
@@ -129,6 +205,67 @@ def generate_markdown_report(
     for i, row in enumerate(rows[header_row_idx + 1 :], start=1):
         if not any(row):
             continue
+
+        # Record the movement before anything can cancel it out. The spreadsheet
+        # row is +1 more than the loop index because of the header row.
+        if credit_idx is not None or debit_idx is not None:
+            mv_credit = (
+                parse_float(row[credit_idx])
+                if credit_idx is not None and credit_idx < len(row)
+                else 0.0
+            )
+            mv_debit = (
+                parse_float(row[debit_idx])
+                if debit_idx is not None and debit_idx < len(row)
+                else 0.0
+            )
+            mv_name = (
+                str(row[mv_name_idx]).strip()
+                if mv_name_idx is not None and mv_name_idx < len(row) and row[mv_name_idx] is not None
+                else ""
+            )
+            mv_key = ""
+            if mv_key_idx is not None and mv_key_idx < len(row) and row[mv_key_idx] is not None:
+                mv_key = str(row[mv_key_idx]).strip()
+            # Without an account column, fall back to the name so the register
+            # still records something rather than reporting no movements at all.
+            if not mv_key:
+                mv_key = mv_name
+            if mv_key:
+                entry = movements[mv_key]
+                entry["credit_total"] += mv_credit
+                entry["debit_total"] += mv_debit
+                entry["largest_leg"] = max(
+                    entry["largest_leg"], mv_credit, mv_debit
+                )
+                entry["legs"] += 1
+                entry["rows"].add(i + header_row_idx)
+                if not entry["name"]:
+                    entry["name"] = mv_name
+
+            # Both legs are evaluated independently so a threshold on one side
+            # can never hide a large movement on the other.
+            for side, amount in (("Credit", mv_credit), ("Debit", mv_debit)):
+                if amount <= 0:
+                    continue
+                if movement_threshold is not None and amount < movement_threshold:
+                    continue
+                legs.append(
+                    {
+                        "side": side,
+                        "amount": amount,
+                        "account": mv_key,
+                        "name": mv_name,
+                        "sheet_row": i + header_row_idx,
+                        "currency": (
+                            str(row[curr_idx]).strip()
+                            if curr_idx is not None
+                            and curr_idx < len(row)
+                            and row[curr_idx] is not None
+                            else ""
+                        ),
+                    }
+                )
 
         # Compute identity value either via a single identity column or concatenated cols
         id_val = ""
@@ -159,16 +296,14 @@ def generate_markdown_report(
         if not id_val or str(id_val).upper() in ["N/A", "NULL", "NONE"]:
             continue
 
-        # Determine metric value: prefer credit/debit if available, otherwise use metric_col
-        m_val = 0.0
-        if credit_idx is not None or debit_idx is not None:
-            # Use credit/debit columns as the metric source
+        # Determine metric value: split mode nets credit against debit,
+        # single mode reads the metric column as-is.
+        if amount_mode == "split":
             credit_amount = parse_float(row[credit_idx]) if credit_idx is not None and credit_idx < len(row) else 0.0
             debit_amount = parse_float(row[debit_idx]) if debit_idx is not None and debit_idx < len(row) else 0.0
             # Net: credit is positive, debit is negative
             m_val = credit_amount - debit_amount
         else:
-            # Fall back to metric column
             metric_val_str = row[met_idx] if met_idx is not None and met_idx < len(row) else 0.0
             m_val = parse_float(metric_val_str)
 
@@ -179,37 +314,32 @@ def generate_markdown_report(
             c_val = str(row[curr_idx]).strip() if row[curr_idx] is not None else ""
 
         # Determine flow type and amounts. Priority:
-        # 1) Separate credit/debit columns (if configured) - credits are inflows, debits are outflows
-        # 2) Single flow type column (if configured)
-        # 3) Sign of metric value
+        # 1) Split mode: a credit and a debit can both appear on one row
+        # 2) Single mode: the flow type column, when one is mapped
+        # 3) Sign of the metric value
         is_inflow = False
         is_outflow = False
         inflow_amount = 0.0  # For credit/debit split accounting
         outflow_amount = 0.0  # For credit/debit split accounting
 
-        # Check separate credit/debit columns first
-        if credit_idx is not None or debit_idx is not None:
+        if amount_mode == "split":
+            # Read the pair once: these amounts are both the metric and the flow.
             credit_amount = parse_float(row[credit_idx]) if credit_idx is not None and credit_idx < len(row) else 0.0
             debit_amount = parse_float(row[debit_idx]) if debit_idx is not None and debit_idx < len(row) else 0.0
 
-            # When using credit/debit columns, BOTH can be present in same row
+            # Both can be populated on the same row, so these are not exclusive.
             if credit_amount > 0:
                 is_inflow = True
                 inflow_amount = credit_amount
-            if debit_amount > 0:  # Note: 'if' not 'elif' to allow both
+            if debit_amount > 0:
                 is_outflow = True
                 outflow_amount = debit_amount
-                
-            # If neither present, fall back to sign of metric
-            if not is_inflow and not is_outflow:
-                if m_val >= 0:
-                    is_inflow = True
-                    inflow_amount = m_val
-                else:
-                    is_outflow = True
-                    outflow_amount = abs(m_val)
 
-        # If separate creditdebit columns not present or have no values, check single flow type column
+            # Neither side populated: the row moved no money, so it belongs to
+            # neither direction. Booking it as an inflow would smuggle it past
+            # the "Inflows only" filter and inflate the inflow total with a 0.
+            # It still counts as a transaction in the unfiltered report.
+
         elif flow_idx is not None and flow_idx < len(row):
             f_val = (
                 str(row[flow_idx]).strip().upper() if row[flow_idx] is not None else ""
@@ -221,6 +351,8 @@ def generate_markdown_report(
                 is_outflow = True
                 outflow_amount = abs_m_val
             else:
+                # An unrecognised marker means the column is not really a flow
+                # column; fall back to the sign rather than guessing a direction.
                 if m_val >= 0:
                     is_inflow = True
                     inflow_amount = abs_m_val
@@ -282,11 +414,14 @@ def generate_markdown_report(
         reverse=True,
     )
     
-    # Apply minimum amount filter if specified (use scaled_metric_sum if available, else metric_sum)
+    # Apply minimum amount filter if specified. Test the absolute value of the
+    # scaled total directly: a truthiness test here would silently drop every
+    # account whose net position is exactly zero.
     if min_amount_filter is not None and min_amount_filter > 0:
         sorted_groups = [
-            (k, v) for k, v in sorted_groups 
-            if v.get("scaled_metric_sum") and abs(v.get("scaled_metric_sum", v["metric_sum"])) >= min_amount_filter
+            (k, v)
+            for k, v in sorted_groups
+            if abs(v.get("scaled_metric_sum", v["metric_sum"])) >= min_amount_filter
         ]
     
     # Apply limit (None means show all records)
@@ -297,6 +432,36 @@ def generate_markdown_report(
 
     # Calculate some summary stats
     top_n_sum = sum(v["metric_sum"] for _, v in top_n)
+
+    # Order accounts for the register. Credit, gross and largest-single are all
+    # offered because they answer different questions: credit turnover is the
+    # assessable base, gross catches movement in either direction, and the largest
+    # single leg catches one extreme transaction.
+    def movement_rank(entry):
+        if movement_sort == "gross":
+            return entry["credit_total"] + entry["debit_total"]
+        if movement_sort == "largest":
+            return entry["largest_leg"]
+        if movement_sort == "net":
+            return entry["credit_total"] - entry["debit_total"]
+        return entry["credit_total"]
+
+    ranked_accounts = sorted(
+        movements.items(), key=lambda kv: movement_rank(kv[1]), reverse=True
+    )
+    # The threshold is applied first and to everything; the limit only shortens
+    # the printed table. Keeping them separate means the offsetting section
+    # below is filtered by the same threshold, not by whatever the limit kept.
+    above_threshold = [
+        (account, entry)
+        for account, entry in ranked_accounts
+        if movement_threshold is None
+        or max(entry["credit_total"], entry["debit_total"], entry["largest_leg"])
+        >= movement_threshold
+    ]
+    flagged_accounts = (
+        above_threshold if limit is None else above_threshold[:limit]
+    )
 
     # Generate Output
     lines = []
@@ -317,15 +482,108 @@ def generate_markdown_report(
             f"   - Total Outflows: {format_currency(total_outflows[c_val], c_val)}"
         )
 
-    # Show metric label - use credit/debit if available, else metric_col
-    metric_label = metric_col
-    if credit_col and debit_col:
-        metric_label = f"{credit_col}/{debit_col}"
+    # Show metric label - the column(s) the chosen mode actually measured
+    metric_label = f"{credit_col} - {debit_col}" if amount_mode == "split" else metric_col
     lines.append(f"Metric Analyzed: {metric_label}")
     if currency_col:
         lines.append(f"Currency Grouping: {currency_col}")
     if min_amount_filter and min_amount_filter > 0:
         lines.append(f"Minimum Amount Filter: {format_currency(min_amount_filter)}")
+
+    # --- Movement register -------------------------------------------------
+    # Recorded before any netting, so a customer who moves a large amount in and
+    # the same amount out is still fully visible here.
+    register_heading = f"{title} - MOVEMENT REGISTER"
+    lines.append("")
+    lines.append(register_heading)
+    lines.append("=" * len(register_heading))
+    lines.append("")
+    lines.append(
+        "Every movement is listed as its own leg. Credit and debit are never"
+    )
+    lines.append(
+        "netted, so a customer who pays in and out at the same level still shows"
+    )
+    lines.append("their full activity here.")
+    lines.append(f"Accounts recorded: {len(movements)}")
+    lines.append(f"Individual legs recorded: {len(legs)}")
+    if movement_threshold is not None:
+        lines.append(
+            f"Movement threshold: {format_currency(movement_threshold)} "
+            f"(each leg tested on its own)"
+        )
+    if movement_identity_col:
+        lines.append(f"Accounts keyed by: {movement_identity_col}")
+    lines.append(f"Ordered by: {MOVEMENT_SORT_LABELS[movement_sort]}")
+    lines.append("")
+
+    header = (
+        f"{'#':>3}  {'Account':<13} {'Credit':>18} {'Debit':>18} "
+        f"{'Gross':>18} {'Largest':>18}  Name"
+    )
+    lines.append(header)
+    lines.append("-" * len(header))
+
+    for rank, (account, entry) in enumerate(flagged_accounts, 1):
+        gross = entry["credit_total"] + entry["debit_total"]
+        lines.append(
+            f"{rank:>3}  {account:<13} "
+            f"{entry['credit_total']:>18,.2f} "
+            f"{entry['debit_total']:>18,.2f} "
+            f"{gross:>18,.2f} "
+                f"{entry['largest_leg']:>18,.2f}  {entry['name']}"
+            )
+
+    if not flagged_accounts:
+        lines.append(
+            "  (no account reached the threshold)"
+            if movement_threshold is not None
+            else "  (no movements recorded)"
+        )
+
+    # --- Individual legs ----------------------------------------------------
+    if legs:
+        lines.append("")
+        lines.append(f"INDIVIDUAL MOVEMENTS ({len(legs)} legs)")
+        lines.append("-" * 60)
+        for leg in sorted(legs, key=lambda l: l["amount"], reverse=True):
+            currency = leg["currency"]
+            account = leg["account"] or "(unkeyed)"
+            name = leg["name"] or ""
+            lines.append(
+                f"  Row {leg['sheet_row']:>4}  {leg['side']:<6} "
+                f"{format_currency(leg['amount'], currency):>20}  "
+                f"{account}  {name}"
+            )
+
+    # Accounts above the threshold whose net is small, because that is exactly
+    # the shape a net-ranked report hides. Filtered on the same footing as the
+    # table above, so a threshold is never quietly bypassed by this section.
+    flagged_set = {account for account, _ in above_threshold}
+    offset_movers = [
+        (account, entry)
+        for account, entry in ranked_accounts
+        if account in flagged_set
+        and entry["credit_total"] > 0
+        and abs(entry["credit_total"] - entry["debit_total"])
+        < max(entry["credit_total"], entry["debit_total"]) * 0.25
+    ]
+    if offset_movers:
+        lines.append("")
+        lines.append("OFFSETTING ACTIVITY (large movements that net to near zero)")
+        lines.append("-" * 60)
+        for account, entry in sorted(
+            offset_movers,
+            key=lambda kv: max(kv[1]["credit_total"], kv[1]["debit_total"]),
+            reverse=True,
+        ):
+            net = entry["credit_total"] - entry["debit_total"]
+            lines.append(
+                f"  {account}  {entry['name']}\n"
+                f"      Credit {entry['credit_total']:,.2f} | "
+                f"Debit {entry['debit_total']:,.2f} | Net {net:,.2f}"
+            )
+
     lines.append("")
     # Format header based on whether limit is set
     if limit is None or limit == 0:
@@ -455,10 +713,27 @@ def generate_cumulative_report(
     if min_amount_filter is not None:
         min_amount_filter = parse_float(min_amount_filter)
 
-    if not nuban_col or not metric_col:
+    # The cumulative report totals the same amount the main report measures, so
+    # it honours the chosen amount mode too. Otherwise "NUBAN cumulative" plus
+    # credit/debit columns would fail at generate time with no way to recover.
+    credit_col = config.get("credit_col")
+    debit_col = config.get("debit_col")
+    amount_mode = config.get("amount_mode")
+    if amount_mode not in ("single", "split"):
+        amount_mode = "split" if (credit_col and debit_col) else "single"
+    if amount_mode == "single":
+        metric_col = config.get("metric_col")
+    else:
+        metric_col = None
+
+    if not nuban_col:
+        raise ValueError("A NUBAN column must be selected for the cumulative report.")
+    if amount_mode == "split" and not (credit_col and debit_col):
         raise ValueError(
-            "NUBAN (or identity) and Metric columns must be selected for cumulative report."
+            "Split mode needs both a Credit column and a Debit column."
         )
+    if amount_mode == "single" and not metric_col:
+        raise ValueError("Single mode needs a metric column to measure.")
 
     # Validate header_row_idx
     if header_row_idx is None or header_row_idx < 0 or header_row_idx >= len(rows):
@@ -471,15 +746,30 @@ def generate_cumulative_report(
 
     if nuban_col not in header_map:
         raise ValueError(f"NUBAN column '{nuban_col}' not found in headers")
-    if metric_col not in header_map:
-        raise ValueError(f"Metric column '{metric_col}' not found in headers")
 
     nuban_idx = header_map[nuban_col]
-    met_idx = header_map[metric_col]
+    if amount_mode == "split":
+        for col in (credit_col, debit_col):
+            if col not in header_map:
+                raise ValueError(f"Column '{col}' not found in headers")
+        credit_idx = header_map[credit_col]
+        debit_idx = header_map[debit_col]
+        amount_label = f"{credit_col} - {debit_col}"
+    else:
+        if metric_col not in header_map:
+            raise ValueError(f"Metric column '{metric_col}' not found in headers")
+        credit_idx = debit_idx = None
+        met_idx = header_map[metric_col]
+        amount_label = metric_col
 
     keep_indices = []
     for col in keep_columns:
-        if col in header_map and col not in [nuban_col, metric_col]:
+        if col in header_map and col not in [
+            nuban_col,
+            metric_col,
+            credit_col,
+            debit_col,
+        ]:
             keep_indices.append((col, header_map[col]))
 
     groups = defaultdict(lambda: {"metric_sum": 0.0, "count": 0, "metadata": {}})
@@ -495,7 +785,12 @@ def generate_cumulative_report(
         )
         if not nuban or str(nuban).upper() in ["N/A", "NULL", "NONE"]:
             continue
-        metric_val = parse_float(row[met_idx] if met_idx < len(row) else 0.0)
+        if amount_mode == "split":
+            credit = parse_float(row[credit_idx] if credit_idx < len(row) else 0.0)
+            debit = parse_float(row[debit_idx] if debit_idx < len(row) else 0.0)
+            metric_val = credit - debit
+        else:
+            metric_val = parse_float(row[met_idx] if met_idx < len(row) else 0.0)
         g = groups[nuban]
         g["metric_sum"] += metric_val
         g["count"] += 1
@@ -541,9 +836,9 @@ def generate_cumulative_report(
     lines.append("")
     # Format header based on whether limit is set
     if limit is None or limit == 0:
-        lines.append(f"ALL ACCOUNTS BY {metric_col}:")
+        lines.append(f"ALL ACCOUNTS BY {amount_label}:")
     else:
-        lines.append(f"TOP {limit} ACCOUNTS BY {metric_col}:")
+        lines.append(f"TOP {limit} ACCOUNTS BY {amount_label}:")
     lines.append("")
 
     for idx, (nuban, data) in enumerate(display_items, 1):

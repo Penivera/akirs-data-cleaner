@@ -663,7 +663,14 @@ def extract_records(
                 if values[nuban_idx] != "N/A":
                     nuban_str = str(values[nuban_idx]).strip()
                     nuban_digits = "".join(filter(str.isdigit, nuban_str))
-                    if len(nuban_digits) != 10:
+                    if len(nuban_digits) == 9:
+                        # Bank exports routinely carry the account number as a
+                        # number, which drops the leading zero. Restore it
+                        # rather than discarding an otherwise valid row: without
+                        # this the record is skipped and, worse, "123456789" and
+                        # "0123456789" would not be seen as the same account.
+                        values[nuban_idx] = "0" + nuban_digits
+                    elif len(nuban_digits) != 10:
                         values[nuban_idx] = "N/A"
 
             # Skip rows with no meaningful data at all

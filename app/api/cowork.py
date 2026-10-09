@@ -92,7 +92,7 @@ async def cowork_join(token: str, current_user: User = Depends(get_current_user)
         return HTMLResponse("Space not found or link expired", status_code=404)
     if space.owner_id != current_user.id:
         await space_svc.add_member(space.id, current_user.id)
-    return RedirectResponse(f"/app?space={space.id}", status_code=303)
+    return RedirectResponse(f"/app/cowork/{space.id}", status_code=303)
 
 
 @router.post("/api/cowork/join/{token}")
@@ -527,7 +527,7 @@ async def delete_space_file(
 ):
     space = await _space_for_user(space_id, current_user.id)
     if space is None or space.owner_id != current_user.id:
-        return Response(status_code=204)
+        return Response(status_code=200)
     state = await repo.get(repo.KIND_SPACE_FILE, file_id)
     if state is not None and state.space_id == space_id:
         if state.saved_path and os.path.exists(state.saved_path):
@@ -541,7 +541,7 @@ async def delete_space_file(
             except OSError:
                 pass
         await repo.delete(repo.KIND_SPACE_FILE, file_id)
-    return Response(status_code=204)
+    return Response(status_code=200)
 
 
 @router.post("/api/cowork/spaces/{space_id}/mapping/{file_id}", response_class=HTMLResponse)
