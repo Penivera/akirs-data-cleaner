@@ -17,11 +17,15 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/style.css?v=1.0.4">
+    <link rel="stylesheet" href="/static/css/style.css?v={{ asset_versions.style_css }}">
     <link rel="icon" type="image/png" href="/static/akirs.png">
 </head>
 
-<body>
+<body data-active-tab="{{ active_tab }}" data-space-id="{{ space_id or '' }}"
+    data-invite-token="{{ invite_token or '' }}">
+    <a class="visually-hidden" href="#main-content">Skip to main content</a>
+    <div id="app-progress" class="app-progress" hidden aria-hidden="true"><span></span></div>
+    <div id="app-alerts" class="app-alerts" role="region" aria-label="Notifications" aria-live="polite"></div>
     <div class="app-container">
         <!-- Premium Administrative Header matching akirs.ak.gov.ng -->
         <header class="akirs-header">
@@ -52,79 +56,42 @@
             </div>
         </header>
 
-        <!-- Segmented Ingestion Navigation -->
-        <nav class="top-nav">
-            <a href="#" class="nav-item active" hx-get="/api/view/process" hx-target="#main-content"
-                onclick="document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active')); this.classList.add('active');">
+        <!-- Segmented Ingestion Navigation: every tab is a real URL under /app -->
+        <nav class="top-nav" aria-label="Primary">
+            {% set nav_items = [
+                ('process', '/api/view/process', 'Batch Process', '<path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>'),
+                ('cleaned', '/api/view/cleaned', 'Cleaned Datasets', '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line>'),
+                ('cowork', '/api/cowork/view', 'Coworking', '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path>'),
+                ('analyse', '/api/analyse/view', 'Analyse &amp; Report', '<path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path><path d="M22 12A10 10 0 0 0 12 2v10z"></path>'),
+                ('nuban', '/api/nuban/view', 'NUBAN Audit', '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>'),
+                ('intel', '/api/intel/view', 'DB Sync', '<path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>'),
+            ] %}
+            {% for slug, endpoint, label, icon in nav_items %}
+            <a href="/app/{{ slug }}" class="nav-item{% if active_tab == slug %} active{% endif %}" id="nav-{{ slug }}"
+                data-tab="{{ slug }}" data-endpoint="{{ endpoint }}"
+                {%- if active_tab == slug %} aria-current="page"{% endif %}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M12 20h9"></path>
-                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    {{ icon | safe }}
                 </svg>
-                Batch Process
+                {{ label | safe }}
             </a>
-            <a href="#" class="nav-item" hx-get="/api/view/cleaned" hx-target="#main-content"
-                onclick="document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active')); this.classList.add('active');">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                    <polyline points="7 10 12 15 17 10"></polyline>
-                    <line x1="12" y1="15" x2="12" y2="3"></line>
-                </svg>
-                Cleaned Datasets
-            </a>
-            <a href="#" class="nav-item" id="nav-cowork" hx-get="/api/cowork/view" hx-target="#main-content"
-                onclick="document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active')); this.classList.add('active');">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                    <circle cx="9" cy="7" r="4"></circle>
-                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-                    <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-                </svg>
-                Coworking
-            </a>
-            <a href="#" class="nav-item" hx-get="/api/analyse/view" hx-target="#main-content"
-                onclick="document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active')); this.classList.add('active');">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path>
-                    <path d="M22 12A10 10 0 0 0 12 2v10z"></path>
-                </svg>
-                Analyse & Report
-            </a>
-            <a href="#" class="nav-item" hx-get="/api/nuban/view" hx-target="#main-content"
-                onclick="document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active')); this.classList.add('active');">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-                </svg>
-                NUBAN Audit
-            </a>
-            <a href="#" class="nav-item" hx-get="/api/intel/view" hx-target="#main-content"
-                onclick="document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active')); this.classList.add('active');">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
-                </svg>
-                DB Sync
-            </a>
+            {% endfor %}
         </nav>
 
         <!-- Main Dynamic Content Container (loaded via HTMX with the bearer token) -->
         <main id="main-content" class="main-content"></main>
 
         <!-- Government Administrative Footer -->
-        <footer
-            style="margin-top: 4rem; padding-top: 2rem; border-top: 1px solid #cbd5e1; text-align: center; color: #64748b; font-size: 0.85rem;">
+        <footer class="app-footer">
             <p>&copy; 2026 Akwa Ibom State Internal Revenue Service. All rights reserved. Government Administrative Data
                 System.</p>
         </footer>
     </div>
 
-    <script src="/static/js/auth-core.js?v=2"></script>
-    <script src="/static/js/app.js?v=2"></script>
-    <script src="/static/js/session.js?v=3"></script>
+    <script src="/static/js/auth-core.js?v={{ asset_versions.auth_core_js }}"></script>
+    <script src="/static/js/app.js?v={{ asset_versions.app_js }}"></script>
+    <script src="/static/js/session.js?v={{ asset_versions.session_js }}"></script>
 </body>
 
 </html>

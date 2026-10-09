@@ -3,7 +3,7 @@ from hashlib import sha256
 from pathlib import Path
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 router = APIRouter()
@@ -34,8 +34,48 @@ def auth_page(request: Request):
     )
 
 
+#: Canonical slug for each primary navigation tab, in the order the nav renders.
+WORKSPACE_TABS = ('process', 'cleaned', 'cowork', 'analyse', 'nuban', 'intel')
+
+DEFAULT_TAB = 'process'
+
+
+def _shell(request: Request, tab: str = DEFAULT_TAB, **extra) -> HTMLResponse:
+    """Render the workspace shell with its nav already pointed at `tab`."""
+    versions = {
+        'auth_core_js': _asset_version('static/js/auth-core.js'),
+        'app_js': _asset_version('static/js/app.js'),
+        'session_js': _asset_version('static/js/session.js'),
+        'style_css': _asset_version('static/css/style.css'),
+    }
+    return templates.TemplateResponse(
+        request=request,
+        name='index.html',
+        context={'active_tab': tab, 'asset_versions': versions, **extra},
+    )
+
+
 @router.get('/app', response_class=HTMLResponse)
+def workspace_root(request: Request):
+    """Canonicalise the bare shell onto its default tab."""
+    return RedirectResponse(f'/app/{DEFAULT_TAB}', status_code=307)
+
+
+@router.get('/app/cowork/{space_id}', response_class=HTMLResponse)
+def workspace_space(request: Request, space_id: str):
+    """Deep link into a single coworking space; the guarded JS resolves the id."""
+    return _shell(request, 'cowork', space_id=space_id)
+
+
+@router.get('/app/{tab}', response_class=HTMLResponse)
+def workspace_tab(request: Request, tab: str):
+    """Every tab is its own URL so a refresh or a shared link lands on it."""
+    if tab not in WORKSPACE_TABS:
+        return RedirectResponse(f'/app/{DEFAULT_TAB}', status_code=307)
+    return _shell(request, tab)
+
+
 @router.get('/cowork/join/{token}', response_class=HTMLResponse)
-def workspace_page(request: Request, token: str = ""):
-    """Public shell with no data; the guarded JS loads content with the bearer token."""
-    return templates.TemplateResponse(request=request, name='index.html')
+def workspace_invite(request: Request, token: str):
+    """Invite landing shell; the join itself is redeemed by the guarded JS."""
+    return _shell(request, 'cowork', invite_token=token)
