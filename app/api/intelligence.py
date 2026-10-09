@@ -1,18 +1,17 @@
-from fastapi import APIRouter, UploadFile, File, Request, Depends
+from fastapi import APIRouter, BackgroundTasks, UploadFile, File, Request, Depends
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
-import hashlib
 import os
 import time
 from typing import List, Dict, Any
 
 from app.core import repository as repo
-from app.core.config import settings
 from app.core.deps import get_current_user
 from app.core.executor import run_cpu
 from app.core.models import User
 from app.core.state import IntelSyncState, PRESETS, get_user_upload_dir, get_user_cleaned_dir
 from app.services.audit import log_audit
+from app.services.uploads import ANALYSING_STATUS, stream_upload_to_disk
 from app.services.validators import validate_upload
 from app.services.cleaner import load_tabular_rows, find_header_row_and_headers_from_rows, save_cleaned_records, auto_map_headers, extract_records
 from app.services.intelligence import check_file_records_against_db
@@ -32,6 +31,7 @@ async def get_intel_view(request: Request, current_user: User = Depends(get_curr
 @router.post("/api/intel/upload", response_class=HTMLResponse)
 async def intel_upload(
     request: Request,
+    background_tasks: BackgroundTasks,
     file: List[UploadFile] = File(...),
     current_user: User = Depends(get_current_user),
 ):
@@ -44,29 +44,10 @@ async def intel_upload(
     for f in files_to_process:
         validate_upload(f)
 
-        # Stream file to disk in chunks
         safe_filename = os.path.basename(f.filename).replace("..", "").replace("/", "_").replace("\\", "_")
         temp_path = os.path.join(user_upload_dir, f"intel_{safe_filename}")
 
-        hasher = hashlib.sha256()
-        file_size = 0
-        max_size_bytes = settings.max_upload_size_mb * 1024 * 1024
-
-        with open(temp_path, "wb") as file_out:
-            while chunk := await f.read(1024 * 1024):  # 1MB chunks
-                file_size += len(chunk)
-                if file_size > max_size_bytes:
-                    file_out.close()
-                    os.remove(temp_path)
-                    from fastapi import HTTPException
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"File size exceeds the maximum allowed size of {settings.max_upload_size_mb}MB",
-                    )
-                hasher.update(chunk)
-                file_out.write(chunk)
-
-        file_hash = hasher.hexdigest()
+        file_hash, file_size = await stream_upload_to_disk(f, temp_path)
 
         is_duplicate = False
         for existing_state in await repo.list_for_user(repo.KIND_INTEL, current_user.id):
@@ -90,21 +71,19 @@ async def intel_upload(
         state.upload_hash = file_hash
         state.upload_size = file_size
         state.uploaded_at = now
+        state.status = ANALYSING_STATUS
 
-        try:
-            _, sheet_names = await run_cpu(load_tabular_rows, temp_path, "")
-            state.sheet_names = sheet_names
-
-            if len(sheet_names) > 1:
-                state.status = "Needs Sheet"
-            else:
-                state.selected_sheets = [sheet_names[0]] if sheet_names else [""]
-                state.status = "Needs Config"
-
-        except Exception as e:
-            state.status = f"Error: {str(e)}"
-
+        task_id = f"ana_{state.id}"
         await repo.put(repo.KIND_INTEL, state)
+        await repo.set_task(
+            task_id, state.id, current_user.id, "processing", "Queued for analysis…"
+        )
+        background_tasks.add_task(
+            _analyse_intel_background,
+            file_id=state.id,
+            user_id=current_user.id,
+            task_id=task_id,
+        )
         processed_states.append(state)
         await log_audit(
             "intel_upload",
@@ -119,6 +98,66 @@ async def intel_upload(
         name="partials/intelligence_file_cards.html",
         context={"request": request, "files": processed_states},
     )
+
+
+async def _analyse_intel_background(file_id: str, user_id: int, task_id: str) -> None:
+    """Detect worksheets for an accepted intelligence-sync upload."""
+    state = await repo.get(repo.KIND_INTEL, file_id)
+    if not state or state.user_id != user_id:
+        await repo.set_task(task_id, file_id, user_id, "failed", "File not found")
+        return
+
+    try:
+        await repo.update_task(task_id, message="Detecting worksheets…")
+        _, sheet_names = await run_cpu(load_tabular_rows, state.saved_path, "")
+        state.sheet_names = sheet_names
+
+        if len(sheet_names) > 1:
+            state.status = "Needs Sheet"
+        else:
+            state.selected_sheets = [sheet_names[0]] if sheet_names else [""]
+            state.status = "Needs Config"
+    except Exception as e:
+        state.status = f"Error: {str(e)}"
+
+    # Deleted mid-analysis? repo.put() recreates a missing row, so bail out
+    # rather than resurrecting a file the user removed.
+    if await repo.get(repo.KIND_INTEL, file_id) is None:
+        await repo.set_task(
+            task_id, file_id, user_id, "failed", "Cancelled — file removed"
+        )
+        return
+
+    await repo.put(repo.KIND_INTEL, state)
+    failed = state.status.startswith(("Error", "Failed"))
+    await repo.set_task(
+        task_id, file_id, user_id, "failed" if failed else "done", state.status
+    )
+    await log_audit(
+        "intel_analysed",
+        user=None,
+        filename=state.original_filename,
+        status=state.status,
+        detail=f"user_id={user_id}",
+    )
+
+
+@router.get("/api/intel/card/{file_id}", response_class=HTMLResponse)
+async def get_intel_card(
+    request: Request,
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Re-render one intelligence card (used to poll an in-progress analysis)."""
+    state = await repo.get(repo.KIND_INTEL, file_id)
+    if not state or state.user_id != current_user.id:
+        return "File not found"
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/intelligence_file_card.html",
+        context={"request": request, "file": state},
+    )
+
 
 @router.post("/api/intel/config-form/{file_id}", response_class=HTMLResponse)
 async def get_intel_config_form(request: Request, file_id: str, current_user: User = Depends(get_current_user)):
@@ -204,7 +243,7 @@ async def delete_intel_file(
             filename=state.original_filename,
             request=request,
         )
-    return Response(status_code=204)
+    return Response(status_code=200)
 
 async def process_intel_sync(state: IntelSyncState, user_id: int = None):
     """
