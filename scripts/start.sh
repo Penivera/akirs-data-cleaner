@@ -38,10 +38,19 @@ fi
 
 # Start Web server in background so signal traps work
 echo "[start.sh] Starting Gunicorn web server on port ${PORT:-8080}..."
+# FORWARDED_ALLOW_IPS makes uvicorn honour X-Forwarded-Proto/-Host from the proxy.
+# Without it the default trust list is 127.0.0.1 only, and a reverse proxy on
+# another host (Coolify's Traefik, nginx, ...) is ignored -- leaving
+# request.url.scheme stuck at "http". Every url_for and redirect is then emitted
+# as http://, which browsers reject as mixed content on an HTTPS page and which
+# makes password forms post credentials in the clear.
+# Safe to set broadly because the web port is never published to the host
+# network (docker-compose only "expose"s it), so the proxy is the sole client.
 gunicorn main:app \
     -w "${WORKERS:-2}" \
     -k uvicorn.workers.UvicornWorker \
     --bind "0.0.0.0:${PORT:-8080}" \
+    --forwarded-allow-ips "${FORWARDED_ALLOW_IPS:-*}" \
     --access-logfile - &
 WEB_PID=$!
 
