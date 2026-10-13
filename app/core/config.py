@@ -222,5 +222,15 @@ class Settings(BaseSettings):
             )
         return self
 
+    @model_validator(mode="after")
+    def _secure_admin_cookie_in_production(self) -> "Settings":
+        # Production is always served over TLS (Coolify/Traefik terminates it),
+        # so the admin session cookie must carry the Secure attribute. Opt out
+        # explicitly with ADMIN_SESSION_HTTPS_ONLY=false only if you really are
+        # terminating TLS somewhere the app cannot see.
+        if self.app_env.lower() == "production" and not self.admin_session_https_only:
+            object.__setattr__(self, "admin_session_https_only", True)
+        return self
+
 
 settings = Settings()
