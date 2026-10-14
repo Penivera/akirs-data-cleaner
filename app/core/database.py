@@ -53,10 +53,31 @@ _prepare_sqlite_directory(_normalized_url)
 
 _is_sqlite = _normalized_url.startswith("sqlite")
 
+_engine_kwargs: dict = {
+    "pool_pre_ping": True,
+    "future": True,
+}
+if not _is_sqlite:
+    # Production Postgres (often behind PgBouncer / a managed proxy):
+    # - recycle connections so a DB restart doesn't leave stale handles
+    # - cap the pool so 2 gunicorn workers + polling can't exhaust
+    #   max_connections
+    # - disable asyncpg's prepared-statement cache: it breaks under
+    #   PgBouncer transaction pooling ("prepared statement already exists" /
+    #   generic DBAPIError).
+    _engine_kwargs.update(
+        {
+            "pool_size": 5,
+            "max_overflow": 10,
+            "pool_timeout": 30,
+            "pool_recycle": 1800,
+            "connect_args": {"prepared_statement_cache_size": 0},
+        }
+    )
+
 engine = create_async_engine(
     _normalized_url,
-    pool_pre_ping=True,
-    future=True,
+    **_engine_kwargs,
 )
 
 

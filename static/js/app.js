@@ -289,8 +289,17 @@ function initProcessingPolling(root = document) {
         const msgEl = card.querySelector('[data-role="task-msg-text"]');
         let failures = 0;
         let timer = null;
+        const startedAt = Date.now();
+        const MAX_POLL_MS = 5 * 60 * 1000;
+        const stop = () => { if (timer) clearInterval(timer); timer = null; };
 
         const poll = async () => {
+            // Card removed (e.g. file deleted) or polling too long: stop the
+            // timer instead of leaking a 2s-interval DB-backed poll forever.
+            if (!document.contains(card) || Date.now() - startedAt > MAX_POLL_MS) {
+                stop();
+                return;
+            }
             try {
                 const auth = window.AKIRSAuth;
                 const response = auth
@@ -300,16 +309,17 @@ function initProcessingPolling(root = document) {
                     });
                 if (!response.ok) {
                     failures += 1;
-                    if (failures >= 5) clearInterval(timer);
+                    if (failures >= 5) stop();
                     return;
                 }
                 failures = 0;
                 const task = await response.json();
 
-                if (task.status === 'done' || task.status === 'failed') {
-                    clearInterval(timer);
-                    // Refresh the file card via htmx
-                    if (window.htmx) {
+                if (task.status === 'done' || task.status === 'failed' || task.status === 'unknown') {
+                    stop();
+                    // Refresh the file card via htmx (unknown = deleted file,
+                    // so only refresh if the card is still on screen).
+                    if (window.htmx && task.status !== 'unknown') {
                         window.htmx.trigger(card, 'refreshcard');
                     }
                     return;
@@ -317,7 +327,7 @@ function initProcessingPolling(root = document) {
                 if (msgEl && task.message) msgEl.textContent = task.message;
             } catch (e) {
                 failures += 1;
-                if (failures >= 5) clearInterval(timer);
+                if (failures >= 5) stop();
             }
         };
 

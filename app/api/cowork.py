@@ -541,6 +541,9 @@ async def delete_space_file(
             except OSError:
                 pass
         await repo.delete(repo.KIND_SPACE_FILE, file_id)
+        # Otherwise the tasks row survives and the UI polls /api/task-status
+        # for the deleted file forever.
+        await repo.delete_tasks_for_file(file_id)
     return Response(status_code=200)
 
 

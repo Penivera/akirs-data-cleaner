@@ -237,6 +237,9 @@ async def delete_intel_file(
             except OSError:
                 pass
         await repo.delete(repo.KIND_INTEL, file_id)
+        # Otherwise the tasks row survives and the UI polls /api/task-status
+        # for the deleted file forever.
+        await repo.delete_tasks_for_file(file_id)
         await log_audit(
             "intel_delete",
             user=current_user,
