@@ -101,7 +101,12 @@ class WorkItem(Base):
         ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
     )
     uploaded_at: Mapped[float] = mapped_column(Float, default=0.0, index=True)
-    status: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    # TEXT, not VARCHAR(n): failure statuses carry full exception messages
+    # (e.g. the openpyxl .xls message is ~150 chars). A capped VARCHAR made
+    # the work_items UPDATE itself fail with StringDataRightTruncationError,
+    # crashing the background task before it could mark itself done/failed and
+    # leaving the UI polling forever.
+    status: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     data: Mapped[str] = mapped_column(Text)
 
     def __repr__(self) -> str:
@@ -139,7 +144,9 @@ class AuditLog(Base):
     user_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     action: Mapped[str] = mapped_column(String(64), index=True)
     filename: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
-    status: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # TEXT for the same reason as WorkItem.status: audit entries record the
+    # work-item status, which can be a full error message.
+    status: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     ip: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
