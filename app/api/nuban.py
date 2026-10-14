@@ -275,6 +275,9 @@ async def delete_nuban_file(
             except OSError:
                 pass
         await repo.delete(repo.KIND_NUBAN, file_id)
+        # Otherwise the tasks row survives and the UI polls /api/task-status
+        # for the deleted file forever.
+        await repo.delete_tasks_for_file(file_id)
         await log_audit(
             "nuban_delete",
             user=current_user,
