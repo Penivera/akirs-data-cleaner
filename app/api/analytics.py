@@ -106,8 +106,7 @@ async def analyse_upload(
             if len(sheet_names) > 1:
                 state.status = "Needs Sheet"
             else:
-                if sheet_names:
-                    state.selected_sheets = [sheet_names[0]]
+                state.selected_sheets = [sheet_names[0]] if sheet_names else [""]
                 rows, _ = await run_cpu(
                     load_tabular_rows,
                     temp_path,

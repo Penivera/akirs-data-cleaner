@@ -6,10 +6,61 @@ from typing import Tuple, List, Dict, Any
 from app.core.state import SYNONYMS, TARGET_FIELDS
 
 
+def _load_xls_rows(
+    file_path: str, selected_sheet: str = ""
+) -> Tuple[List[Tuple[Any, ...]], List[str]]:
+    """Load legacy BIFF ``.xls`` rows via xlrd into openpyxl-shaped tuples."""
+    try:
+        import xlrd
+    except ImportError as e:
+        raise ValueError("Legacy .xls support requires the 'xlrd' package.") from e
+
+    with open(os.devnull, "w") as devnull:
+        wb = xlrd.open_workbook(file_path, logfile=devnull)
+        sheet_names = wb.sheet_names()
+
+    if selected_sheet and selected_sheet in sheet_names:
+        target = selected_sheet
+    else:
+        target = None
+        for name in sheet_names:
+            if "RETAIL" in name.upper():
+                target = name
+                break
+        if target is None:
+            target = sheet_names[0] if sheet_names else None
+
+    rows: List[Tuple[Any, ...]] = []
+    if target is not None:
+        sheet = wb.sheet_by_name(target)
+        for r in range(sheet.nrows):
+            values: List[Any] = []
+            for c in range(sheet.ncols):
+                ctype = sheet.cell_type(r, c)
+                val = sheet.cell_value(r, c)
+                if ctype in (xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK):
+                    values.append(None)
+                elif ctype == xlrd.XL_CELL_NUMBER and isinstance(val, float) and val.is_integer():
+                    values.append(int(val))
+                elif ctype == xlrd.XL_CELL_DATE:
+                    try:
+                        values.append(xlrd.xldate_as_datetime(val, wb.datemode))
+                    except Exception:
+                        values.append(val)
+                elif ctype == xlrd.XL_CELL_BOOLEAN:
+                    values.append(bool(val))
+                elif isinstance(val, str) and val == "":
+                    values.append(None)
+                else:
+                    values.append(val)
+            rows.append(tuple(values))
+    return rows, sheet_names
+
+
 def load_tabular_rows(
     file_path: str, selected_sheet: str = ""
 ) -> Tuple[List[Tuple[Any, ...]], List[str]]:
-    """Load tabular rows from CSV or Excel and return rows plus available sheet names."""
+    """Load tabular rows from CSV, legacy XLS, or modern Excel."""
     lower_path = file_path.lower()
     if lower_path.endswith(".csv"):
         rows: List[Tuple[Any, ...]] = []
@@ -23,6 +74,9 @@ def load_tabular_rows(
                 reader = csv.reader(f)
                 rows = [tuple(row) for row in reader]
         return rows, []
+
+    if lower_path.endswith(".xls") and not lower_path.endswith(".xlsx"):
+        return _load_xls_rows(file_path, selected_sheet)
 
     wb = openpyxl.load_workbook(file_path, data_only=True, read_only=True)
     sheet_names = wb.sheetnames
@@ -43,8 +97,9 @@ def load_tabular_rows(
 def resolve_output_filename(original_filename: str, output_pattern: str = "{filename}") -> str:
     """Resolves output filename based on a pattern like 'INTELIGENCE_GATHERING_{filename}'."""
     base_name = os.path.basename(original_filename)
-    if base_name.endswith(".xlsx"):
-        base_name = base_name.replace(".xlsx", ".csv")
+    root, ext = os.path.splitext(base_name)
+    if ext.lower() in (".xlsx", ".xls", ".xlsm"):
+        base_name = root + ".csv"
     
     if output_pattern:
         return output_pattern.replace("{filename}", base_name)
@@ -127,6 +182,52 @@ def pre_flight_validate(file_path: str, selected_sheet: str = "") -> Dict[str, A
                 "reason": f"Failed to parse CSV file: {str(e)}",
                 "location": "File System",
                 "solution": "Verify that the file is not corrupted and is saved as a standard CSV."
+            })
+            return report
+    elif lower_path.endswith(".xls") and not lower_path.endswith(".xlsx"):
+        # Legacy BIFF .xls: no merged-cell / formula metadata via xlrd,
+        # so run the header + shape checks on the loaded rows.
+        try:
+            rows, sheet_names = load_tabular_rows(file_path, selected_sheet)
+            if not sheet_names:
+                report["score"] = 0
+                report["status"] = "Critical"
+                report["issues"].append({
+                    "severity": "CRITICAL",
+                    "reason": "The Excel file has no worksheets.",
+                    "location": "Workbook",
+                    "solution": "Ensure the Excel file has at least one active worksheet with data."
+                })
+                return report
+            target = selected_sheet if selected_sheet in sheet_names else sheet_names[0]
+            if not rows:
+                report["score"] = 0
+                report["status"] = "Critical"
+                report["issues"].append({
+                    "severity": "CRITICAL",
+                    "reason": "The selected worksheet is completely empty.",
+                    "location": f"Sheet '{target}'",
+                    "solution": "Check the spreadsheet and fill in the records."
+                })
+                return report
+            header_row_idx, headers = find_header_row_and_headers_from_rows(rows)
+            if not headers:
+                report["score"] = min(report["score"], 30)
+                report["status"] = "Critical"
+                report["issues"].append({
+                    "severity": "CRITICAL",
+                    "reason": "Header row with at least 3 named columns could not be identified.",
+                    "location": f"Sheet '{target}'",
+                    "solution": "Place names on the first row of your table (e.g. NAME, PHONE, etc.)."
+                })
+        except Exception as e:
+            report["score"] = 0
+            report["status"] = "Critical"
+            report["issues"].append({
+                "severity": "CRITICAL",
+                "reason": f"Failed to parse Excel file: {str(e)}",
+                "location": "File System",
+                "solution": "Ensure that the file is not corrupted, is a valid .xls, and is not password protected."
             })
             return report
     else:

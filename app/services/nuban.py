@@ -155,8 +155,9 @@ async def process_nuban_resolution(state: NubanState):
     out_filename = f"resolved_{os.path.basename(file_path)}"
     # Sanitize filename
     out_filename = out_filename.replace("..", "").replace("/", "_").replace("\\", "_")
-    if out_filename.endswith(".xlsx"):
-        out_filename = out_filename.replace(".xlsx", ".csv")
+    root, ext = os.path.splitext(out_filename)
+    if ext.lower() in (".xlsx", ".xls", ".xlsm"):
+        out_filename = root + ".csv"
 
     out_path = os.path.join(output_dir, out_filename)
     with open(out_path, mode="w", newline="", encoding="utf-8") as f:

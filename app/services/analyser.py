@@ -403,8 +403,9 @@ def process_analytics(state, output_dir: str = "reports") -> str:
 
     all_rows = []
     header_row_idx = getattr(state, "header_row_idx", None)
+    selected_sheets = getattr(state, "selected_sheets", []) or [""]
 
-    for idx, sheet_name in enumerate(state.selected_sheets):
+    for idx, sheet_name in enumerate(selected_sheets):
         rows, _ = load_tabular_rows(state.saved_path, sheet_name)
 
         if idx == 0:
@@ -566,8 +567,9 @@ def process_cumulative_transactions(state, output_dir: str = "reports") -> str:
 
     all_rows = []
     header_row_idx = getattr(state, "header_row_idx", None)
+    selected_sheets = getattr(state, "selected_sheets", []) or [""]
 
-    for idx, sheet_name in enumerate(state.selected_sheets):
+    for idx, sheet_name in enumerate(selected_sheets):
         rows, _ = load_tabular_rows(state.saved_path, sheet_name)
         if idx == 0:
             if header_row_idx is None:
