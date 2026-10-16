@@ -1,95 +1,88 @@
+{% import 'partials/icons.html' as icons %}
 {% set is_owner = (user.id == space.owner_id if space else is_owner) %}
+{% set st = file.status or '' %}
+{% set status_key = 'failed' if ('Failed' in st or st.lower().startswith('error')) else 'processing' if 'Processing' in st or 'Queued' in st else 'review' if 'Review' in st else 'mapping' if 'Needs' in st else 'processed' if 'Processed' in st else 'ready' if st == 'Ready' else 'new' %}
 <div class="file-card {% if file.preset_name == 'intelligence' %}intelligence-preset{% elif file.preset_name == 'custom' %}custom-preset{% endif %}"
-     id="file-card-{{ file.id }}"
-     style="margin-bottom: 1.25rem;">
+     id="file-card-{{ file.id }}" style="margin-bottom: 1.25rem;">
     <div class="file-header">
-        <div class="file-info" style="display: flex; gap: 1rem; align-items: flex-start; width: 100%;">
-            <div style="padding-top: 0.35rem;">
+        <div class="file-info">
+            <div class="file-title-row">
                 <input type="checkbox" name="file_ids" value="{{ file.id }}" class="cowork-file-select"
-                       style="transform: scale(1.3); accent-color: var(--primary); cursor: pointer;"
-                       {% if 'Processed' in file.status or file.status == 'Ready' or 'Failed' in file.status %}{% else %}disabled{% endif %}>
+                       aria-label="Select {{ file.original_filename }}"
+                       {% if 'Processed' in st or st == 'Ready' or 'Failed' in st %}{% else %}disabled{% endif %}>
+                <span class="file-name">{{ file.original_filename }}</span>
+                {% if file.preset_name == 'retail' %}
+                <span class="badge badge-retail">Retail Preset</span>
+                {% elif file.preset_name == 'intelligence' %}
+                <span class="badge badge-intelligence">Intelligence Preset</span>
+                {% else %}
+                <span class="badge badge-custom">Custom Mapping</span>
+                {% endif %}
+                <span class="badge badge-neutral">{{ icons.icon('clock', 13) }} {{ file.ttl_hours or 24 }}h retention</span>
             </div>
 
-            <div style="flex: 1;">
-                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-                    <span class="file-name" style="font-weight: 700; font-size: 1.05rem; color: #1e293b;">
-                        {{ file.original_filename }}
-                    </span>
-                    {% if file.preset_name == 'retail' %}
-                    <span class="badge badge-retail">Retail Preset</span>
-                    {% elif file.preset_name == 'intelligence' %}
-                    <span class="badge badge-intelligence">Intelligence Preset</span>
-                    {% else %}
-                    <span class="badge badge-custom">Custom Mapping</span>
-                    {% endif %}
-                    <span class="badge" style="background: #f1f5f9; color: #475569; font-size: 0.75rem;">
-                        ⏱️ {{ file.ttl_hours or 24 }}h retention
-                    </span>
-                </div>
-
-                <div class="file-meta" style="margin-top: 0.35rem; font-size: 0.85rem; color: #64748b;">
-                    Size: {{ (file.upload_size / 1024) | round(1) if file.upload_size else '0' }} KB &bull;
-                    Duplicate Strategy:
-                    {% if file.duplicate_logic == 'weirdly_similar' %}
-                    Fuzzy Match
-                    {% elif file.duplicate_logic == 'primary_key' and file.primary_key_field %}
-                    Primary Key ({{ file.primary_key_field }})
-                    {% else %}
-                    Standard
-                    {% endif %}
-                </div>
-
-                <div class="file-status-indicator status-{{ file.status.split(' ')[0].lower() if file.status else 'new' }}"
-                     style="margin-top: 0.5rem; display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
-                    <span class="status-dot"></span>
-                    <span style="font-weight: 500;">{{ file.status }}</span>
-                </div>
-            </div>
-
-            <div class="file-actions" style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-                <!-- Live Preview: Available to all space members without downloading -->
-                <button type="button" class="btn btn-outline"
-                        hx-get="/api/cowork/spaces/{{ space_id }}/view/{{ file.id }}"
-                        hx-target="#preview-container-{{ file.id }}"
-                        title="View tabular data live on the server">
-                    👁️ Live View
-                </button>
-
-                <!-- Mapping / Options configuration -->
-                {% if file.status == 'Ready' or file.status == 'Needs Mapping' %}
-                <button type="button" class="btn btn-outline"
-                        hx-post="/api/cowork/spaces/{{ space_id }}/components/mapping/{{ file.id }}"
-                        hx-target="#mapping-area-{{ file.id }}">
-                    ⚙️ Options
-                </button>
-                {% endif %}
-
-                <!-- Download: ONLY allowed for Space Owner or the member who triggered the job -->
-                {% if 'Processed' in file.status and (user.id == file.processed_by or is_owner) %}
-                <button type="button" class="btn btn-accent"
-                        onclick="AKIRSAuth.download('/api/cowork/spaces/{{ space_id }}/download/{{ file.id }}', '{{ file.result_filename or file.original_filename }}')">
-                    📥 Download Result
-                </button>
-                {% endif %}
-
-                <!-- Delete file: Space Owner only -->
-                {% if is_owner %}
-                <button type="button" class="btn btn-danger"
-                        hx-delete="/api/cowork/spaces/{{ space_id }}/files/{{ file.id }}"
-                        hx-target="#file-card-{{ file.id }}"
-                        hx-swap="outerHTML"
-                        title="Delete file from space"
-                        style="padding: 0.45rem 0.65rem;">
-                    🗑️
-                </button>
+            <div class="file-meta">
+                Size: {{ (file.upload_size / 1024) | round(1) if file.upload_size else '0' }} KB &bull;
+                Duplicate strategy:
+                {% if file.duplicate_logic == 'weirdly_similar' %}
+                Fuzzy match
+                {% elif file.duplicate_logic == 'primary_key' and file.primary_key_field %}
+                Primary key ({{ file.primary_key_field }})
+                {% else %}
+                Standard
                 {% endif %}
             </div>
+
+            <div class="file-status-indicator status-{{ status_key }}">
+                <span class="status-dot" aria-hidden="true"></span>
+                <span>{{ file.status }}</span>
+            </div>
+        </div>
+
+        <div class="file-actions">
+            <!-- Live Preview: Available to all space members without downloading -->
+            <button type="button" class="btn btn-outline"
+                    hx-get="/api/cowork/spaces/{{ space_id }}/view/{{ file.id }}"
+                    hx-target="#preview-container-{{ file.id }}"
+                    title="View tabular data live on the server">
+                {{ icons.icon('eye') }} Live view
+            </button>
+
+            <!-- Mapping / Options configuration -->
+            {% if st == 'Ready' or st == 'Needs Mapping' %}
+            <button type="button" class="btn btn-outline"
+                    hx-post="/api/cowork/spaces/{{ space_id }}/components/mapping/{{ file.id }}"
+                    hx-target="#mapping-area-{{ file.id }}">
+                {{ icons.icon('sliders') }} Options
+            </button>
+            {% endif %}
+
+            <!-- Download: ONLY allowed for Space Owner or the member who triggered the job -->
+            {% if 'Processed' in st and (user.id == file.processed_by or is_owner) %}
+            <button type="button" class="btn btn-accent"
+                    data-download-url="/api/cowork/spaces/{{ space_id }}/download/{{ file.id }}"
+                    data-download-name="{{ file.result_filename or file.original_filename }}">
+                {{ icons.icon('download') }} Download result
+            </button>
+            {% endif %}
+
+            <!-- Delete file: Space Owner only -->
+            {% if is_owner %}
+            <button type="button" class="btn btn-danger btn-icon"
+                    hx-delete="/api/cowork/spaces/{{ space_id }}/files/{{ file.id }}"
+                    hx-target="#file-card-{{ file.id }}"
+                    hx-swap="delete"
+                    title="Delete file from space" aria-label="Delete {{ file.original_filename }} from this space"
+                    hx-confirm="Delete {{ file.original_filename }} from this space for every member? This cannot be undone.">
+                {{ icons.icon('trash') }}
+            </button>
+            {% endif %}
         </div>
     </div>
 
     <!-- Mapping Area -->
-    <div id="mapping-area-{{ file.id }}" class="mapping-area" style="margin-top: 0.75rem;"></div>
+    <div id="mapping-area-{{ file.id }}" class="mapping-area"></div>
 
     <!-- Live Preview Container -->
-    <div id="preview-container-{{ file.id }}" class="glass-preview-container"></div>
+    <div id="preview-container-{{ file.id }}" class="preview-container"></div>
 </div>

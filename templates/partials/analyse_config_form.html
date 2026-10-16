@@ -1,27 +1,34 @@
-<form hx-post="/api/analyse/config/{{ file.id }}" hx-target="#analyse-file-{{ file.id }}" hx-swap="outerHTML" class="mapping-grid glass-panel" style="margin-top: 15px;">
+{% import 'partials/icons.html' as icons %}
+<form hx-post="/api/analyse/config/{{ file.id }}" hx-target="#analyse-file-{{ file.id }}" hx-swap="outerHTML" class="mapping-form">
     {% if 'Needs Sheet' in file.status %}
         <div class="mapping-row" style="grid-column: 1 / -1;">
-            <label>TARGET SHEETS (Select at least one)</label>
-            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 10px; background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px;">
-                <label style="display: flex; align-items: center; gap: 8px; font-weight: bold; color: var(--primary); grid-column: 1 / -1; border-bottom: 1px solid var(--glass-border); padding-bottom: 8px; margin-bottom: 5px;">
-                    <input type="checkbox" onchange="const cbs = this.closest('.mapping-row').querySelectorAll('.sheet-cb'); cbs.forEach(cb => cb.checked = this.checked);" style="accent-color: var(--primary);">
-                    Select All Sheets
+            <label>Target sheets (select at least one)</label>
+            <div class="subpanel display-grid">
+                <label class="checkbox-inline" style="grid-column: 1 / -1; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; color: var(--primary);">
+                    <input type="checkbox" onchange="const cbs = this.closest('.mapping-row').querySelectorAll('.sheet-cb'); cbs.forEach(cb => cb.checked = this.checked);">
+                    Select all sheets
                 </label>
                 {% for sname in file.sheet_names %}
-                <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; font-size: 13px; color: #f8fafc;">
-                    <input type="checkbox" name="selected_sheets" value="{{ sname }}" class="sheet-cb" {% if sname in file.selected_sheets %}checked{% endif %} style="accent-color: var(--primary);">
+                <label class="checkbox-inline" style="font-weight: 400; font-size: 0.82rem;">
+                    <input type="checkbox" name="selected_sheets" value="{{ sname }}" class="sheet-cb" {% if sname in file.selected_sheets %}checked{% endif %}>
                     {{ sname }}
                 </label>
                 {% endfor %}
             </div>
-            <small style="color: #64748b; font-size: 0.75rem;">This workbook contains multiple sheets. You can now select multiple sheets to analyze them all in one report.</small>
+            <small>This workbook contains multiple sheets. Select one or more to analyse in a single report.</small>
         </div>
     {% else %}
+    {% if file.config.get('config_error') %}
+    <div class="form-error" role="alert">
+        <strong>Saved with a correction.</strong> {{ file.config.get('config_error') }}
+    </div>
+    {% endif %}
+    <div class="mapping-grid">
         {% if preview_rows %}
-        <div style="grid-column: 1 / -1; margin-bottom: 20px;">
-            <label style="color: #cbd5e1; font-size: 0.85rem; margin-bottom: 8px; display: block;">Data Preview (First {{ preview_rows|length }} rows)</label>
-            <div style="overflow-x: auto; border: 1px solid var(--glass-border); border-radius: 8px;">
-                <table class="fancy-table" style="margin-bottom: 0;">
+        <div style="grid-column: 1 / -1; margin-bottom: 1.25rem;">
+            <label class="mapping-section-label" style="margin-bottom: 0.5rem;">Data preview (first {{ preview_rows|length }} rows)</label>
+            <div class="table-container" style="margin: 0;">
+                <table class="fancy-table">
                     <thead>
                         <tr>
                             {% for h in file.headers %}
@@ -44,34 +51,34 @@
         {% endif %}
 
         <div class="mapping-row">
-            <label>TITLE <br><small style="color: #64748b; font-size: 0.75rem;">Report heading</small></label>
-            <input type="text" name="title" class="fancy-select mapping-highlight-field {% if file.config.get('title', 'DATA ANALYSIS REPORT') %}is-mapped{% endif %}" value="{{ file.config.get('title', 'DATA ANALYSIS REPORT') }}" required>
+            <label for="title-{{ file.id }}">Title <br><small class="form-hint">Report heading</small></label>
+            <input type="text" id="title-{{ file.id }}" name="title" class="fancy-select mapping-highlight-field {% if file.config.get('title', 'DATA ANALYSIS REPORT') %}is-mapped{% endif %}" value="{{ file.config.get('title', 'DATA ANALYSIS REPORT') }}" required>
         </div>
-        
+
         <div class="mapping-row">
-            <label>ACCOUNT NAME <br><small style="color: #64748b; font-size: 0.75rem;">Who to rank</small></label>
+            <label>Account name <br><small class="form-hint">Who to rank</small></label>
             {% set selected_name_cols = file.config.get('concat_columns', []) or ([file.config.get('identity_col')] if file.config.get('identity_col') else []) %}
-            <details id="analysis-account-name-picker-{{ file.id }}" data-max-selected="3" style="position: relative;">
-                <summary class="fancy-select {% if selected_name_cols %}is-mapped{% endif %}" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; list-style: none;">
-                    <span class="analysis-account-name-label" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                        {% if selected_name_cols %}{{ selected_name_cols|join(' + ') }}{% else %}-- Select Account Name --{% endif %}
+            <details id="analysis-account-name-picker-{{ file.id }}" class="generic-field-picker" data-max-selected="3" style="position: relative;">
+                <summary class="fancy-select {% if selected_name_cols %}is-mapped{% endif %}" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; cursor: pointer;">
+                    <span class="picker-label analysis-account-name-label">
+                        {% if selected_name_cols %}{{ selected_name_cols|join(' + ') }}{% else %}-- Select account name --{% endif %}
                     </span>
-                    <span style="margin-left: auto; font-weight: 900;">⌄</span>
+                    {{ icons.icon('chevron-down', 16) }}
                 </summary>
 
-                <div class="analysis-account-name-values" style="display: none;">
+                <div class="analysis-account-name-values" hidden>
                     <input type="hidden" name="identity_col" value="{{ selected_name_cols[0] if selected_name_cols else '' }}">
                     {% for selected_header in selected_name_cols %}
                     <input type="hidden" name="concat_columns" value="{{ selected_header }}">
                     {% endfor %}
                 </div>
 
-                <div style="position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 50; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; background: white; max-height: 260px; overflow-y: auto; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);">
+                <div class="picker-overlay">
                     {% for h in file.headers %}
-                    <label style="display: flex; align-items: center; gap: 8px; padding: 7px 6px; font-size: 13px; color: #1e293b; border-bottom: 1px solid #f1f5f9;">
-                        <input type="checkbox" value="{{ h }}" {% if h in selected_name_cols %}checked{% endif %} class="analysis-account-name-cb" style="accent-color: var(--primary);">
-                        <span class="analysis-account-name-order" style="display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 999px; border: 1px solid #cbd5e1; color: var(--text-color); font-size: 10px; font-weight: bold; background: #fafafa;"></span>
-                        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ h }}</span>
+                    <label class="picker-option">
+                        <input type="checkbox" value="{{ h }}" {% if h in selected_name_cols %}checked{% endif %} class="analysis-account-name-cb">
+                        <span class="picker-badge-order analysis-account-name-order"></span>
+                        <span>{{ h }}</span>
                     </label>
                     {% endfor %}
                 </div>
@@ -111,16 +118,14 @@
                             const badge = cb.closest("label").querySelector(".analysis-account-name-order");
                             const order = selected.indexOf(cb.value);
                             badge.textContent = order >= 0 ? String(order + 1) : "";
-                            badge.style.background = order >= 0 ? "var(--primary-light)" : "#fafafa";
-                            badge.style.borderColor = order >= 0 ? "var(--primary)" : "#cbd5e1";
-                            badge.style.color = order >= 0 ? "var(--primary)" : "var(--text-color)";
+                            badge.classList.toggle("is-active", order >= 0);
                         });
 
                         if (selected.length) {
                             label.textContent = selected.join(" + ");
                             summary.classList.add("is-mapped");
                         } else {
-                            label.textContent = "-- Select Account Name --";
+                            label.textContent = "-- Select account name --";
                             summary.classList.remove("is-mapped");
                         }
                     }
@@ -152,19 +157,107 @@
             </script>
         </div>
 
-        <div class="mapping-row">
-            <label>What are we measuring? <br><small style="color: #64748b; font-size: 0.75rem;">(e.g., Amount, Balance, Debit size)</small></label>
-            <select name="metric_col" class="fancy-select" required>
-                <option value="">-- Select Numeric Column to Sum --</option>
-                {% for h in file.headers %}
-                <option value="{{ h }}" {% if file.config.get('metric_col') == h %}selected{% endif %}>{{ h }}</option>
-                {% endfor %}
-            </select>
+        {# ------------------------------------------------------------------
+           How the money moved. Single and split are mutually exclusive, so the
+           user picks one explicitly and only that mode's fields are shown and
+           required. Credit/debit used to be three optional dropdowns sitting
+           next to a required metric, which made split-mode files impossible to
+           configure: the metric field was always mandatory.
+           ------------------------------------------------------------------ #}
+        {% set mode = file.config.get('amount_mode') %}
+        {% if mode not in ('single', 'split') %}
+            {% set mode = 'split' if (file.config.get('credit_col') and file.config.get('debit_col')) else 'single' %}
+        {% endif %}
+        <fieldset class="amount-mode" data-amount-mode-for="analyse-{{ file.id }}">
+            <legend class="mapping-section-label">What are we measuring?</legend>
+            <p class="amount-mode__lead">This decides how each row's amount is read, so pick the one that matches your file.</p>
+
+            <div class="amount-mode__options">
+                <label class="amount-mode__option">
+                    <input type="radio" name="amount_mode" value="single" {% if mode == 'single' %}checked{% endif %}>
+                    <span class="amount-mode__text">
+                        <strong>One amount column</strong>
+                        <span>A single numeric column holds every transaction. Direction comes from the sign, or from a flow column if you map one.</span>
+                    </span>
+                </label>
+                <label class="amount-mode__option">
+                    <input type="radio" name="amount_mode" value="split" {% if mode == 'split' %}checked{% endif %}>
+                    <span class="amount-mode__text">
+                        <strong>Separate credit and debit columns</strong>
+                        <span>Credits and debits sit in two columns. One side is populated per row; net is credit minus debit.</span>
+                    </span>
+                </label>
+            </div>
+        </fieldset>
+
+        <div class="amount-mode__panel" data-when-mode="single" {% if mode != 'single' %}hidden{% endif %}>
+            <div class="mapping-row">
+                <label for="metric-{{ file.id }}">Amount column <br><small class="form-hint">The numeric column to total, e.g. Amount or Balance</small></label>
+                <select id="metric-{{ file.id }}" name="metric_col" class="fancy-select mapping-highlight-field"
+                    data-mode-required {% if mode == 'single' %}required{% endif %}>
+                    <option value="">-- Select the amount column --</option>
+                    {% for h in file.headers %}
+                    <option value="{{ h }}" {% if file.config.get('metric_col') == h %}selected{% endif %}>{{ h }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="mapping-row">
+                <label for="flowtype-{{ file.id }}">Flow column <br><small class="form-hint">Optional. Marks each row as a credit or debit, e.g. CR / DR</small></label>
+                <select id="flowtype-{{ file.id }}" name="flow_type_col" class="fancy-select mapping-highlight-field">
+                    <option value="">-- None, use the amount's sign --</option>
+                    {% for h in file.headers %}
+                    <option value="{{ h }}" {% if file.config.get('flow_type_col') == h %}selected{% endif %}>{{ h }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="mapping-row" data-needs-flow-column>
+                <div class="config-grid" style="grid-template-columns: 1fr 1fr; gap: 0.75rem; padding: 0; background: none; border: none;">
+                    <div>
+                        <label for="inflow-{{ file.id }}">Marks a credit</label>
+                        <input type="text" id="inflow-{{ file.id }}" name="inflow_indicator" class="fancy-select"
+                            value="{{ file.config.get('inflow_indicator', '') }}" placeholder="CR" autocomplete="off">
+                    </div>
+                    <div>
+                        <label for="outflow-{{ file.id }}">Marks a debit</label>
+                        <input type="text" id="outflow-{{ file.id }}" name="outflow_indicator" class="fancy-select"
+                            value="{{ file.config.get('outflow_indicator', '') }}" placeholder="DR" autocomplete="off">
+                    </div>
+                </div>
+                <small>Only used when you map a flow column. CR and DR are always recognised; add your own markers if the file uses different ones.</small>
+            </div>
         </div>
-        
+
+        <div class="amount-mode__panel" data-when-mode="split" {% if mode != 'split' %}hidden{% endif %}>
+            <div class="mapping-row">
+                <label for="credit-{{ file.id }}">Credit column <br><small class="form-hint">Amounts received, counted as inflows</small></label>
+                <select id="credit-{{ file.id }}" name="credit_col" class="fancy-select mapping-highlight-field"
+                    data-mode-required {% if mode == 'split' %}required{% endif %}>
+                    <option value="">-- Select the credit column --</option>
+                    {% for h in file.headers %}
+                    <option value="{{ h }}" {% if file.config.get('credit_col') == h %}selected{% endif %}>{{ h }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="mapping-row">
+                <label for="debit-{{ file.id }}">Debit column <br><small class="form-hint">Amounts paid out, counted as outflows</small></label>
+                <select id="debit-{{ file.id }}" name="debit_col" class="fancy-select mapping-highlight-field"
+                    data-mode-required {% if mode == 'split' %}required{% endif %}>
+                    <option value="">-- Select the debit column --</option>
+                    {% for h in file.headers %}
+                    <option value="{{ h }}" {% if file.config.get('debit_col') == h %}selected{% endif %}>{{ h }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <p class="amount-mode__note">Both columns are required in this mode. Rows may fill one side, the other, or both.</p>
+        </div>
+
         <div class="mapping-row">
-            <label>CURRENCY <br><small style="color: #64748b; font-size: 0.75rem;">Optional</small></label>
-            <select name="currency_col" class="fancy-select mapping-highlight-field {% if file.config.get('currency_col') %}is-mapped{% endif %}">
+            <label for="currency-{{ file.id }}">Currency <br><small class="form-hint">Optional. Groups the report and ranks across currencies</small></label>
+            <select id="currency-{{ file.id }}" name="currency_col" class="fancy-select mapping-highlight-field">
                 <option value="">-- None --</option>
                 {% for h in file.headers %}
                 <option value="{{ h }}" {% if file.config.get('currency_col') == h %}selected{% endif %}>{{ h }}</option>
@@ -173,80 +266,83 @@
         </div>
 
         <div class="mapping-row">
-            <label>FLOW TYPE <br><small style="color: #64748b; font-size: 0.75rem;">Inflow/outflow column</small></label>
-            <select name="flow_type_col" class="fancy-select mapping-highlight-field {% if file.config.get('flow_type_col') %}is-mapped{% endif %}">
-                <option value="">-- None --</option>
-                {% for h in file.headers %}
-                <option value="{{ h }}" {% if file.config.get('flow_type_col') == h %}selected{% endif %}>{{ h }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        
-        <div class="mapping-row">
-            <label>Credit Column <br><small style="color: #64748b; font-size: 0.75rem;">(Optional: column containing credit amounts. Auto-detected as inflow. Works with Debit column as an alternative to Metric column.)</small></label>
-            <select name="credit_col" class="fancy-select">
-                <option value="">-- None --</option>
-                {% for h in file.headers %}
-                <option value="{{ h }}" {% if file.config.get('credit_col') == h %}selected{% endif %}>{{ h }}</option>
-                {% endfor %}
+            <label for="flowfilter-{{ file.id }}">Report filter <br><small class="form-hint">All transactions, or one direction only</small></label>
+            <select id="flowfilter-{{ file.id }}" name="flow_filter" class="fancy-select">
+                <option value="All" {% if file.config.get('flow_filter') == 'All' %}selected{% endif %}>All transactions</option>
+                <option value="Inflows Only" {% if file.config.get('flow_filter') == 'Inflows Only' %}selected{% endif %}>Inflows only (credits)</option>
+                <option value="Outflows Only" {% if file.config.get('flow_filter') == 'Outflows Only' %}selected{% endif %}>Outflows only (debits)</option>
             </select>
         </div>
 
         <div class="mapping-row">
-            <label>Debit Column <br><small style="color: #64748b; font-size: 0.75rem;">(Optional: column containing debit amounts. Auto-detected as outflow. Must pair with Credit column.)</small></label>
-            <select name="debit_col" class="fancy-select">
-                <option value="">-- None --</option>
-                {% for h in file.headers %}
-                <option value="{{ h }}" {% if file.config.get('debit_col') == h %}selected{% endif %}>{{ h }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        
-        <div class="mapping-row" style="display: flex; gap: 10px;">
-            <div style="flex: 1;">
-                <label>Inflow Indicator</label>
-                <input type="text" name="inflow_indicator" class="fancy-select" value="{{ file.config.get('inflow_indicator', 'INFLOW') }}" placeholder="e.g. CR">
-            </div>
-            <div style="flex: 1;">
-                <label>Outflow Indicator</label>
-                <input type="text" name="outflow_indicator" class="fancy-select" value="{{ file.config.get('outflow_indicator', 'OUTFLOW') }}" placeholder="e.g. DR">
-            </div>
+            <label for="limit-{{ file.id }}">Limit <br><small class="form-hint">How many to list. Blank means all</small></label>
+            <input type="number" id="limit-{{ file.id }}" name="limit" class="fancy-select" min="1" step="1"
+                value="{{ '' if file.config.get('limit') is none or file.config.get('limit') == 0 else file.config.get('limit', 50) }}"
+                placeholder="All records">
         </div>
 
         <div class="mapping-row">
-            <label>Report Filter <br><small style="color: #64748b; font-size: 0.75rem;">(Generate report for all, or limit to specific flows)</small></label>
-            <select name="flow_filter" class="fancy-select">
-                <option value="All" {% if file.config.get('flow_filter') == 'All' %}selected{% endif %}>All Transactions</option>
-                <option value="Inflows Only" {% if file.config.get('flow_filter') == 'Inflows Only' %}selected{% endif %}>Inflows Only</option>
-                <option value="Outflows Only" {% if file.config.get('flow_filter') == 'Outflows Only' %}selected{% endif %}>Outflows Only</option>
-            </select>
-        </div>
-        
-        <div class="mapping-row" style="grid-column: 1 / -1; max-width: 300px;">
-            <label>LIMIT <br><small style="color: #64748b; font-size: 0.75rem;">Blank means all</small></label>
-            <input type="number" name="limit" class="fancy-select" value="{{ '' if file.config.get('limit') is none or file.config.get('limit') == 0 else file.config.get('limit', 50) }}" placeholder="All records">
+            <label for="min-{{ file.id }}">Minimum <br><small class="form-hint">Net floor for the ranked list</small></label>
+            <input type="text" id="min-{{ file.id }}" name="min_amount_filter" class="fancy-select min-amount-filter" value="{{ file.config.get('min_amount_filter', '') }}" placeholder="Leave blank for no filter" inputmode="decimal" autocomplete="off">
+            <small>Compares each account's net. To catch large single movements instead, set a movement threshold below.</small>
+            <small class="amount-scale-hint form-hint" style="min-height: 1rem; display: block;"></small>
         </div>
 
-        <div class="mapping-row" style="grid-column: 1 / -1; max-width: 300px;">
-            <label>MINIMUM <br><small style="color: #64748b; font-size: 0.75rem;">Amount floor</small></label>
-            <input type="text" name="min_amount_filter" class="fancy-select min-amount-filter" value="{{ file.config.get('min_amount_filter', '') }}" placeholder="Leave blank for no filter" inputmode="decimal" autocomplete="off">
-            <small style="color: #64748b; font-size: 0.75rem;">Only show records at or above this amount.</small>
-            <small class="amount-scale-hint" style="color: #64748b; font-size: 0.75rem; min-height: 1rem; display: block;"></small>
-        </div>
-
-        <!-- NUBAN Cumulation Settings -->
-        <div class="mapping-row" style="grid-column: 1 / -1; margin-top: 10px; border-top: 1px solid var(--glass-border); padding-top: 20px;">
-            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; color: #f8fafc; font-weight: 600;">
-                <input type="checkbox" name="cumulate_by_nuban" {% if file.config.get('cumulate_by_nuban') %}checked{% endif %} style="width: 18px; height: 18px; accent-color: var(--primary);">
-                NUBAN Cumulative
-            </label>
-            <p style="color: #94a3b8; font-size: 0.85rem; margin-left: 28px; margin-bottom: 10px;">
-                Group by NUBAN.
+        {# Movement register: records each credit and debit as its own leg, so
+           activity that nets to zero is still recorded. #}
+        <fieldset class="movement-register" data-movement-for="analyse-{{ file.id }}">
+            <legend class="mapping-section-label">Movement register</legend>
+            <p class="amount-mode__lead">
+                Records every credit and debit as its own entry instead of netting them, so a
+                customer who moves a large amount in and the same amount out still shows their
+                full activity.
             </p>
-            
-            <div style="margin-left: 28px; max-width: 400px;">
-                <label style="font-size: 0.8rem; color: #cbd5e1;">NUBAN</label>
-                <select name="nuban_col" class="fancy-select mapping-highlight-field {% if file.config.get('nuban_col') %}is-mapped{% endif %}" style="width: 100%; margin-top: 5px;">
+
+            <div class="mapping-grid" style="margin: 0.75rem 0 0;">
+                <div class="mapping-row">
+                    <label for="movement-threshold-{{ file.id }}">Movement threshold <br><small class="form-hint">Tested on each leg separately</small></label>
+                    <input type="text" id="movement-threshold-{{ file.id }}" name="movement_threshold"
+                        class="fancy-select" value="{{ file.config.get('movement_threshold') or '' }}"
+                        placeholder="e.g. 100,000,000" inputmode="decimal" autocomplete="off">
+                    <small>Only credits or debits at or above this amount are recorded.</small>
+                </div>
+
+                <div class="mapping-row">
+                    <label for="movement-identity-{{ file.id }}">Record per account <br><small class="form-hint">Blank groups by name</small></label>
+                    <select id="movement-identity-{{ file.id }}" name="movement_identity_col" class="fancy-select mapping-highlight-field">
+                        <option value="">-- Group by name --</option>
+                        {% for h in file.headers %}
+                        <option value="{{ h }}" {% if file.config.get('movement_identity_col') == h %}selected{% endif %}>{{ h }}</option>
+                        {% endfor %}
+                    </select>
+                    <small>Use a NUBAN or account column so customers sharing a name are not pooled.</small>
+                </div>
+
+                <div class="mapping-row">
+                    <label for="movement-sort-{{ file.id }}">Order by</label>
+                    <select id="movement-sort-{{ file.id }}" name="movement_sort" class="fancy-select">
+                        {% for value, label in [
+                            ('credit', 'Credit turnover — the assessable base'),
+                            ('gross', 'Gross activity — either direction'),
+                            ('largest', 'Largest single movement'),
+                            ('net', 'Net position'),
+                        ] %}
+                        <option value="{{ value }}" {% if (file.config.get('movement_sort') or 'credit') == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+        </fieldset>
+
+        <div class="mapping-row" style="grid-column: 1 / -1; border-top: 1px solid var(--border-color); padding-top: 1.25rem;">
+            <label class="checkbox-inline">
+                <input type="checkbox" name="cumulate_by_nuban" {% if file.config.get('cumulate_by_nuban') %}checked{% endif %}>
+                NUBAN cumulative
+            </label>
+            <small>Totals every transaction per NUBAN instead of ranking accounts by net activity. Uses the amount columns chosen above.</small>
+            <div style="margin-top: 0.5rem; max-width: 24rem;">
+                <label for="nubancol-{{ file.id }}">NUBAN column</label>
+                <select id="nubancol-{{ file.id }}" name="nuban_col" class="fancy-select mapping-highlight-field {% if file.config.get('nuban_col') %}is-mapped{% endif %}">
                     <option value="">-- Select NUBAN --</option>
                     {% for h in file.headers %}
                     <option value="{{ h }}" {% if file.config.get('nuban_col') == h %}selected{% endif %}>{{ h }}</option>
@@ -254,21 +350,90 @@
                 </select>
             </div>
         </div>
-        
+
         <div class="mapping-row" style="grid-column: 1 / -1;">
-            <label>METADATA <br><small style="color: #64748b; font-size: 0.75rem;">Keep columns</small></label>
-            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 10px;">
+            <label>Metadata <br><small class="form-hint">Keep columns</small></label>
+            <div class="display-grid" style="margin-top: 0.5rem;">
                 {% for h in file.headers %}
-                <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; font-size: 13px; color: #0a0e11;">
-                    <input type="checkbox" name="keep_columns" value="{{ h }}" checked style="accent-color: var(--primary);">
+                <label class="checkbox-inline" style="font-weight: 400; font-size: 0.82rem;">
+                    <input type="checkbox" name="keep_columns" value="{{ h }}" checked>
                     {{ h }}
                 </label>
                 {% endfor %}
             </div>
         </div>
+    </div>
     {% endif %}
 
-    <div class="form-actions" style="grid-column: 1 / -1; margin-top: 10px;">
-        <button type="submit" class="btn btn-primary" style="width: 100%;">Save Configuration</button>
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary" data-config-submit>{{ icons.icon('save') }} Save configuration</button>
     </div>
+
+    <script>
+        (() => {
+            const group = document.querySelector('[data-amount-mode-for="analyse-{{ file.id }}"]');
+            if (!group || group.dataset.bound === "true") return;
+            group.dataset.bound = "true";
+
+            const form = group.closest("form");
+            const panels = form.querySelectorAll("[data-when-mode]");
+            const submit = form.querySelector("[data-config-submit]");
+            const flowColumn = form.querySelector('[name="flow_type_col"]');
+            const flowMarkers = form.querySelector("[data-needs-flow-column]");
+
+            function selectedMode() {
+                const checked = group.querySelector('input[name="amount_mode"]:checked');
+                return checked ? checked.value : "single";
+            }
+
+            // Show only the active mode, and let only it block submission.
+            // A hidden-but-required field is the classic way a form silently
+            // refuses to save, and a visible-but-hidden field makes the choice
+            // look like it did nothing.
+            function syncRequired() {
+                const mode = selectedMode();
+                panels.forEach((panel) => {
+                    const active = panel.dataset.whenMode === mode;
+                    panel.hidden = !active;
+                    panel.querySelectorAll("[data-mode-required]").forEach((field) => {
+                        field.required = active;
+                    });
+                    panel.querySelectorAll("select").forEach((select) => {
+                        select.disabled = !active;
+                        if (!active) select.removeAttribute("required");
+                    });
+                });
+
+                // The credit/debit markers only mean something alongside a flow column.
+                if (flowMarkers) flowMarkers.hidden = !(flowColumn && flowColumn.value);
+            }
+
+            group.addEventListener("change", syncRequired);
+            flowColumn?.addEventListener("change", syncRequired);
+
+            submit?.addEventListener("click", (event) => {
+                const mode = selectedMode();
+                const missing =
+                    mode === "split"
+                        ? ["credit_col", "debit_col"]
+                        : ["metric_col"];
+                const unfilled = missing.filter(
+                    (name) => !form.querySelector(`[name="${name}"]`)?.value
+                );
+                if (unfilled.length) {
+                    event.preventDefault();
+                    const labels = unfilled
+                        .map((name) => form.querySelector(`[name="${name}"]`)
+                            ?.closest(".mapping-row")
+                            ?.querySelector("label")?.childNodes[0]?.textContent?.trim())
+                        .filter(Boolean);
+                    window.AKIRSNotify?.error(
+                        `Choose ${labels.join(" and ")} before saving.`
+                    );
+                }
+            });
+
+            syncRequired();
+        })();
+    </script>
 </form>

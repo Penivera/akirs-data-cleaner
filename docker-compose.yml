@@ -28,6 +28,7 @@ services:
     volumes:
       - uploads:/app/uploads
       - cleaned:/app/cleaned
+      - reports:/app/reports
       - data:/app/data
 
   celery:
@@ -52,11 +53,13 @@ services:
     volumes:
       - uploads:/app/uploads
       - cleaned:/app/cleaned
+      - reports:/app/reports
       - data:/app/data
 
 volumes:
   uploads:
   cleaned:
+  reports:
   data:
 
 networks:

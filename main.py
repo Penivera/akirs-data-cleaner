@@ -147,7 +147,7 @@ async def browser_auth(request, call_next):
         response = RedirectResponse("/auth", status_code=303)
     elif response.status_code == 401 and request.headers.get("hx-request") == "true":
         response.headers["HX-Redirect"] = "/auth"
-    if request.url.path == "/" or request.url.path.startswith(("/auth", "/api/auth", "/app")):
+    if request.url.path == "/" or request.url.path.startswith(("/auth", "/api/auth", "/app", "/cowork/join")):
         response.headers["Cache-Control"] = "no-store"
     return response
 

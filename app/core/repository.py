@@ -170,6 +170,31 @@ async def get_task(task_id: str) -> Optional[Dict[str, Any]]:
         }
 
 
+async def delete_task(task_id: str) -> None:
+    """Delete one background-task row (used when its file is removed)."""
+    from sqlalchemy import delete as sa_delete
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(sa_delete(Task).where(Task.id == task_id))
+        await db.commit()
+
+
+async def delete_tasks_for_file(file_id: str) -> int:
+    """Delete every background-task row for a file. Returns rows removed.
+
+    Work-item deletes never removed their ``tasks`` rows, so the UI kept
+    polling ``/api/task-status`` for deleted files forever (each poll is two
+    DB queries: auth + task lookup). Call this from every file-delete
+    endpoint.
+    """
+    from sqlalchemy import delete as sa_delete
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(sa_delete(Task).where(Task.file_id == file_id))
+        await db.commit()
+        return result.rowcount or 0
+
+
 async def get_active_task(file_or_space_id: str) -> Optional[Dict[str, Any]]:
     """Return the most recent in-progress ('queued' or 'processing') task."""
     async with AsyncSessionLocal() as db:

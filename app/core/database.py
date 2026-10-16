@@ -1,3 +1,4 @@
+import logging
 import os
 
 from sqlalchemy import inspect, text
@@ -9,6 +10,8 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import settings
+
+logger = logging.getLogger("app.database")
 
 
 def normalize_database_url(url: str) -> str:
@@ -53,10 +56,31 @@ _prepare_sqlite_directory(_normalized_url)
 
 _is_sqlite = _normalized_url.startswith("sqlite")
 
+_engine_kwargs: dict = {
+    "pool_pre_ping": True,
+    "future": True,
+}
+if not _is_sqlite:
+    # Production Postgres (often behind PgBouncer / a managed proxy):
+    # - recycle connections so a DB restart doesn't leave stale handles
+    # - cap the pool so 2 gunicorn workers + polling can't exhaust
+    #   max_connections
+    # - disable asyncpg's prepared-statement cache: it breaks under
+    #   PgBouncer transaction pooling ("prepared statement already exists" /
+    #   generic DBAPIError).
+    _engine_kwargs.update(
+        {
+            "pool_size": 5,
+            "max_overflow": 10,
+            "pool_timeout": 30,
+            "pool_recycle": 1800,
+            "connect_args": {"prepared_statement_cache_size": 0},
+        }
+    )
+
 engine = create_async_engine(
     _normalized_url,
-    pool_pre_ping=True,
-    future=True,
+    **_engine_kwargs,
 )
 
 
@@ -127,6 +151,33 @@ async def _ensure_user_columns() -> None:
         await conn.commit()
 
 
+async def _ensure_text_status_columns() -> None:
+    """Widen legacy VARCHAR status columns to TEXT (Postgres only).
+
+    ``work_items.status`` used to be ``VARCHAR(128)`` and ``audit_logs.status``
+    ``VARCHAR(64)``. A full error message (e.g. the ~150-char openpyxl ``.xls``
+    message) made the ``UPDATE work_items`` itself fail with
+    ``StringDataRightTruncationError``, crashing the background task before it
+    could mark itself done/failed — the UI then polled ``processing`` forever.
+    SQLite never enforces VARCHAR lengths, so this is a Postgres-only fix.
+    Each statement runs on its own connection so one failure cannot poison
+    the others; concurrent workers racing the same ALTER simply no-op.
+    """
+    if _is_sqlite:
+        return
+    statements = [
+        "ALTER TABLE work_items ALTER COLUMN status TYPE TEXT",
+        "ALTER TABLE audit_logs ALTER COLUMN status TYPE TEXT",
+    ]
+    for statement in statements:
+        try:
+            async with engine.connect() as conn:
+                await conn.execute(text(statement))
+                await conn.commit()
+        except Exception as exc:  # pragma: no cover - best effort at startup
+            logger.warning("Status column migration skipped (%s): %r", statement, exc)
+
+
 async def init_db() -> None:
     """Create all tables that do not yet exist."""
     from app.core import models  # noqa: F401  (register models on Base)
@@ -134,3 +185,4 @@ async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     await _ensure_user_columns()
+    await _ensure_text_status_columns()

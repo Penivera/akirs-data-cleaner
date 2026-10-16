@@ -106,7 +106,10 @@ async def process_space_files(
             state.status = f"Failed ({exc})"
             failed += 1
         finally:
-            await repo.put(repo.KIND_SPACE_FILE, state)
+            # The owner may have removed this file mid-run. repo.put() recreates
+            # a missing row, so skip the write rather than resurrect it.
+            if await repo.get(repo.KIND_SPACE_FILE, file_id) is not None:
+                await repo.put(repo.KIND_SPACE_FILE, state)
 
     summary = f"Bulk processing finished: {done}/{total} OK, {failed} failed"
     await repo.set_task(task_id, space_id, runner_user_id, "done", summary)

@@ -1,6 +1,7 @@
 """Run with an isolated DATABASE_URL; never touches the application database."""
 import asyncio
 import os
+import re
 import tempfile
 from pathlib import Path
 
@@ -21,11 +22,15 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from main import app
+from app.core import repository as repo
 from app.core.database import AsyncSessionLocal, engine
 from app.core.models import User
 from app.core.security import hash_password
+from app.core.state import AnalysisState
 
 ADMIN = {'email': 'admin@akirs.local', 'password': 'test-only-password-123'}
+
+ANALYSIS_HEADERS = ['Account', 'Amount', 'Direction', 'Credit', 'Debit']
 
 
 def _run(coro):
@@ -116,8 +121,8 @@ def test_account_pages_are_public_and_workspace_requires_login():
             response = client.get(path)
             assert response.status_code == 200
             assert 'Cache-Control' in response.headers
-        assert client.get('/app').status_code == 200
-        shell = client.get('/app').text
+        assert client.get('/app/process').status_code == 200
+        shell = client.get('/app/process').text
         assert '/static/js/auth-core.js' in shell
         assert '/static/js/session.js' in shell
         assert 'id="main-content"' in shell
@@ -131,6 +136,44 @@ def test_account_pages_are_public_and_workspace_requires_login():
         assert response.status_code == 303
         assert response.headers['location'] == '/auth'
         assert client.get('/api/auth/me').status_code == 401
+
+
+def test_every_tab_has_its_own_refreshable_url():
+    tabs = {
+        '/app/process': '/api/view/process',
+        '/app/cleaned': '/api/view/cleaned',
+        '/app/cowork': '/api/cowork/view',
+        '/app/analyse': '/api/analyse/view',
+        '/app/nuban': '/api/nuban/view',
+        '/app/intel': '/api/intel/view',
+    }
+    with TestClient(app) as client:
+        # A bare or unknown /app path lands on the default tab instead of 404ing.
+        for path in ['/app', '/app/not-a-tab']:
+            response = client.get(path, follow_redirects=False)
+            assert response.status_code == 307
+            assert response.headers['location'] == '/app/process'
+
+        for path, endpoint in tabs.items():
+            shell = client.get(path).text
+            slug = path.rsplit('/', 1)[1]
+            # The tab is a real link, so a refresh or a copied URL resolves.
+            assert f'href="{path}"' in shell, path
+            assert f'data-tab="{slug}"' in shell, path
+            assert f'data-endpoint="{endpoint}"' in shell, path
+            # Exactly one nav item carries the active marker, and it is this tab.
+            assert shell.count('aria-current="page"') == 1, path
+            assert f'data-active-tab="{slug}"' in shell, path
+
+        # Coworking spaces deep link one level deeper.
+        space_shell = client.get('/app/cowork/space-42').text
+        assert 'data-active-tab="cowork"' in space_shell
+        assert 'data-space-id="space-42"' in space_shell
+
+        # Invite links open the coworking tab so the join has somewhere to land.
+        invite = client.get('/cowork/join/abc123').text
+        assert 'data-invite-token="abc123"' in invite
+        assert 'data-active-tab="cowork"' in invite
 
 
 def test_signup_then_admin_approval_then_mandatory_2fa():
@@ -165,6 +208,10 @@ def test_signup_then_admin_approval_then_mandatory_2fa():
         headers = {'Authorization': f"Bearer {tokens['access_token']}"}
         assert client.get('/api/auth/me', headers=headers).status_code == 200
         assert client.get('/api/view/process', headers=headers).status_code == 200
+        # The bare root now canonicalises onto the default tab.
+        root = client.get('/', headers=headers, follow_redirects=False)
+        assert root.status_code == 307
+        assert root.headers['location'] == '/app/process'
         assert client.get('/', headers=headers).status_code == 200
 
         # A later login requires the second factor.
@@ -286,14 +333,222 @@ def test_user_data_isolation():
             r2_view = client.get(f'/api/view/{state.id}', headers=headers2)
             assert r2_view.text == 'Not available'
 
-            # User 2 should NOT be able to delete user1's file
+            # User 2 should NOT be able to delete user1's file. The endpoint
+            # answers 200 (not 204) on purpose: HTMX computes shouldSwap as
+            # "status < 400 and status != 204", so a 204 would skip the swap and
+            # hx-swap="delete" would leave the deleted card on screen.
             r2_del = client.delete(f'/api/delete/{state.id}', headers=headers2)
-            assert r2_del.status_code == 204  # Returns 204 but doesn't delete
+            assert r2_del.status_code == 200  # Returns 200 but doesn't delete
 
             # The file still exists for its owner
             assert _run(repo.get(repo.KIND_FILE, state.id)) is not None
         finally:
             _run(repo.delete(repo.KIND_FILE, state.id))
+
+
+def _analysis_file(user_id, **config):
+    """Persist a Ready analysis file owned by `user_id`, optionally pre-configured."""
+    state = AnalysisState()
+    state.user_id = user_id
+    state.original_filename = 'statement.csv'
+    state.saved_path = 'analytics_statement.csv'
+    state.headers = list(ANALYSIS_HEADERS)
+    state.selected_sheets = ['Sheet1']
+    state.header_row_idx = 0
+    state.status = 'Ready'
+    state.config.update(config)
+    _run(repo.put(repo.KIND_ANALYSIS, state))
+    return state.id
+
+
+def _save_config(client, headers, file_id, **fields):
+    """Post the config form the way the browser does, with a token in the session."""
+    return client.post(
+        f'/api/analyse/config/{file_id}', headers=headers, data=fields
+    )
+
+
+def test_analyse_config_offers_an_explicit_amount_mode():
+    """Credit/debit used to be three optional dropdowns beside a mandatory
+    metric, so a file with only a credit/debit pair could not be saved at all."""
+    with TestClient(app) as client:
+        _approved_user('amounts@akirs.local')
+        _approved_user('amounts@akirs.local')
+        _, tokens = _full_login(
+            client, {'email': 'amounts@akirs.local', 'password': 'UserPass123!'}
+        )
+        headers = {'Authorization': f"Bearer {tokens['access_token']}"}
+        user_id = _get_user_id('amounts@akirs.local')
+
+        file_id = _analysis_file(user_id)
+        form = client.post(
+            f'/api/analyse/components/config-form/{file_id}', headers=headers
+        ).text
+
+        # Both modes are offered as a real choice, not implied by which dropdown
+        # happens to be filled in.
+        assert 'name="amount_mode" value="single"' in form
+        assert 'name="amount_mode" value="split"' in form
+        # Only the active mode's selects are required: metric in single mode,
+        # credit + debit in split mode. The 4th hit is the script's selector.
+        assert 'What are we measuring?' in form
+        assert len(re.findall(r'\sdata-mode-required\s', form)) == 3
+
+        # Saving a split config must reach "Configured" with no metric column.
+        _save_config(
+            client, headers, file_id,
+            identity_col='Account', amount_mode='split',
+            credit_col='Credit', debit_col='Debit',
+            title='X', flow_filter='All', limit='50', keep_columns='Account',
+        )
+        saved = _run(repo.get(repo.KIND_ANALYSIS, file_id))
+        assert saved.status == 'Configured'
+        assert saved.config['amount_mode'] == 'split'
+        assert saved.config['credit_col'] == 'Credit'
+        assert saved.config['debit_col'] == 'Debit'
+        assert saved.config['metric_col'] == ''
+
+        # Editing back to single must clear the pair, not keep it lurking.
+        _save_config(
+            client, headers, file_id,
+            identity_col='Account', amount_mode='single', metric_col='Amount',
+            title='X', flow_filter='All', limit='50', keep_columns='Account',
+        )
+        saved = _run(repo.get(repo.KIND_ANALYSIS, file_id))
+        assert saved.config['amount_mode'] == 'single'
+        assert saved.config['metric_col'] == 'Amount'
+        assert saved.config['credit_col'] == ''
+        assert saved.config['debit_col'] == ''
+
+
+def test_analyse_config_stays_ready_when_a_mode_is_incomplete():
+    """A save missing the columns its chosen mode needs must not claim success."""
+    with TestClient(app) as client:
+        _approved_user('incomplete@akirs.local')
+        _, tokens = _full_login(
+            client, {'email': 'incomplete@akirs.local', 'password': 'UserPass123!'}
+        )
+        headers = {'Authorization': f"Bearer {tokens['access_token']}"}
+        user_id = _get_user_id('incomplete@akirs.local')
+
+        # Split mode with only one of the pair selected.
+        file_id = _analysis_file(user_id)
+        _save_config(
+            client, headers, file_id,
+            identity_col='Account', amount_mode='split', credit_col='Credit',
+            title='X', flow_filter='All', limit='50', keep_columns='Account',
+        )
+        assert _run(repo.get(repo.KIND_ANALYSIS, file_id)).status == 'Ready'
+
+        # Reached Configured once, then broken by an edit: must fall back to Ready
+        # so the card stops offering "Generate output" for an unsatisfiable config.
+        _save_config(
+            client, headers, file_id,
+            identity_col='Account', amount_mode='split',
+            credit_col='Credit', debit_col='Debit',
+            title='X', flow_filter='All', limit='50', keep_columns='Account',
+        )
+        assert _run(repo.get(repo.KIND_ANALYSIS, file_id)).status == 'Configured'
+        _save_config(
+            client, headers, file_id,
+            identity_col='Account', amount_mode='single',
+            title='X', flow_filter='All', limit='50', keep_columns='Account',
+        )
+        assert _run(repo.get(repo.KIND_ANALYSIS, file_id)).status == 'Ready'
+
+
+def test_analyse_config_rejects_a_negative_limit_and_says_so():
+    """A negative limit reached the report as [:limit], which sliced from the
+    end and printed "TOP -35". It is now refused, and the user is told."""
+    with TestClient(app) as client:
+        _approved_user('limits@akirs.local')
+        _, tokens = _full_login(
+            client, {'email': 'limits@akirs.local', 'password': 'UserPass123!'}
+        )
+        headers = {'Authorization': f"Bearer {tokens['access_token']}"}
+        user_id = _get_user_id('limits@akirs.local')
+
+        file_id = _analysis_file(user_id)
+        _save_config(
+            client, headers, file_id,
+            identity_col='Account', amount_mode='split',
+            credit_col='Credit', debit_col='Debit', limit='-35',
+            title='X', flow_filter='All', keep_columns='Account',
+        )
+        saved = _run(repo.get(repo.KIND_ANALYSIS, file_id))
+        # Treated as "no limit" rather than a reversed slice.
+        assert saved.config['limit'] is None
+        assert 'Limit must be 1 or more' in saved.config['config_error']
+
+        # The correction is surfaced in the re-rendered form, not swallowed.
+        form = client.post(
+            f'/api/analyse/components/config-form/{file_id}', headers=headers
+        ).text
+        assert 'Limit must be 1 or more' in form
+        assert 'Saved with a correction' in form
+
+        # A valid limit clears the warning again.
+        _save_config(
+            client, headers, file_id,
+            identity_col='Account', amount_mode='split',
+            credit_col='Credit', debit_col='Debit', limit='35',
+            title='X', flow_filter='All', keep_columns='Account',
+        )
+        saved = _run(repo.get(repo.KIND_ANALYSIS, file_id))
+        assert saved.config['limit'] == 35
+        assert 'config_error' not in saved.config
+
+
+def test_analyse_config_defaults_the_movement_register_to_the_nuban_column():
+    """Keying the register by name would pool accounts that only share a name."""
+    with TestClient(app) as client:
+        _approved_user('register@akirs.local')
+        _, tokens = _full_login(
+            client, {'email': 'register@akirs.local', 'password': 'UserPass123!'}
+        )
+        headers = {'Authorization': f"Bearer {tokens['access_token']}"}
+        user_id = _get_user_id('register@akirs.local')
+
+        file_id = _analysis_file(user_id)
+        _save_config(
+            client, headers, file_id,
+            identity_col='Account', amount_mode='split',
+            credit_col='Credit', debit_col='Debit', nuban_col='NUBAN',
+            movement_threshold='100,000,000', movement_sort='largest',
+            title='X', flow_filter='All', keep_columns='Account',
+        )
+        saved = _run(repo.get(repo.KIND_ANALYSIS, file_id))
+        assert saved.config['movement_threshold'] == 100_000_000.0
+        assert saved.config['movement_sort'] == 'largest'
+        # Falls back to the NUBAN column rather than grouping by name.
+        assert saved.config['movement_identity_col'] == 'NUBAN'
+
+        form = client.post(
+            f'/api/analyse/components/config-form/{file_id}', headers=headers
+        ).text
+        assert 'Movement register' in form
+        assert '100,000,000' in form
+
+
+def test_analyse_config_infers_the_mode_for_configs_saved_before_it_existed():
+    with TestClient(app) as client:
+        _approved_user('legacy@akirs.local')
+        _, tokens = _full_login(
+            client, {'email': 'legacy@akirs.local', 'password': 'UserPass123!'}
+        )
+        headers = {'Authorization': f"Bearer {tokens['access_token']}"}
+        user_id = _get_user_id('legacy@akirs.local')
+
+        file_id = _analysis_file(
+            user_id,
+            identity_col='Account', credit_col='Credit', debit_col='Debit',
+        )
+        form = client.post(
+            f'/api/analyse/components/config-form/{file_id}', headers=headers
+        ).text
+        # The split panel is the one shown, so the user is not silently switched.
+        assert 'value="split" checked' in form
+        assert 'name="amount_mode" value="single"' in form
 
 
 def test_repository_roundtrip_tasks_and_purge():
@@ -359,3 +614,4 @@ def test_repository_roundtrip_tasks_and_purge():
     _run(repo.put(repo.KIND_FILE, stale))
     assert _run(repo.purge_older_than(_time.time())) >= 1
     assert _run(repo.get(repo.KIND_FILE, stale.id)) is None
+

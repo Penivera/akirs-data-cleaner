@@ -1,49 +1,42 @@
-<div style="background: white; border: 1px solid #e2e8f0; border-radius: 0.75rem; padding: 1.5rem; margin-top: 1rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.75rem;">
+{% import 'partials/icons.html' as icons %}
+<div class="preview-shell">
+    <div class="preview-shell__head">
         <div>
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <h4 style="font-family: var(--font-heading); font-size: 1.15rem; color: var(--primary); margin: 0; font-weight: 700;">
-                    Live Record View: {{ file.original_filename }}
-                </h4>
-                <span class="badge" style="background: #fef3c7; color: #92400e; font-size: 0.75rem;">Download Restricted</span>
+            <div class="file-title-row">
+                <h3 style="font-size: 1.1rem; color: var(--primary);">Live record view: {{ file.original_filename }}</h3>
+                <span class="badge badge-warning">Download Restricted</span>
             </div>
-            <p style="font-size: 0.8rem; color: #64748b; margin: 0.25rem 0 0 0;">
-                Showing up to 100 live records on the mounted filesystem. Direct raw download is disabled for members.
-            </p>
+            <p class="file-meta">Showing up to 100 live records on the mounted filesystem. Direct raw download is disabled for members.</p>
         </div>
-        <button type="button" class="btn btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;"
-                onclick="this.closest('.glass-preview-container').innerHTML=''">
-            ✕ Close Preview
+        <button type="button" class="btn btn-outline btn-sm"
+                onclick="this.closest('.preview-container').innerHTML=''">
+            {{ icons.icon('x', 15) }} Close preview
         </button>
     </div>
 
     {% if rows and headers %}
-    <div style="max-height: 400px; overflow-y: auto; overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 0.5rem;">
-        <table class="fancy-table" style="font-size: 0.85rem; width: 100%; border-collapse: collapse;">
+    <div class="preview-scroll">
+        <table class="fancy-table">
             <thead>
-                <tr style="position: sticky; top: 0; background: #f8fafc; z-index: 1;">
+                <tr>
                     {% for h in headers %}
-                    <th style="padding: 0.6rem 0.75rem; text-align: left; border-bottom: 2px solid #cbd5e1; font-weight: 600; color: #334155; white-space: nowrap;">
-                        {{ h }}
-                    </th>
+                    <th>{{ h }}</th>
                     {% endfor %}
                 </tr>
             </thead>
             <tbody>
                 {% for row in rows %}
-                <tr style="border-bottom: 1px solid #f1f5f9;">
+                <tr>
                     {% for cell in row %}
-                    <td style="padding: 0.5rem 0.75rem; color: #475569; white-space: nowrap;">{{ cell }}</td>
+                    <td style="white-space: nowrap;">{{ cell }}</td>
                     {% endfor %}
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
-    <p style="font-size: 0.75rem; color: #94a3b8; margin-top: 0.5rem;">
-        Showing {{ rows | length }} records &bull; Select this file above to run cleaning actions.
-    </p>
+    <p class="table-note">Showing {{ rows | length }} records &bull; select this file above to run cleaning actions.</p>
     {% else %}
-    <p style="color: #64748b; font-size: 0.9rem; text-align: center; padding: 2rem;">No data rows available to preview.</p>
+    <p class="table-note" style="padding: 2rem; text-align: center;">No data rows available to preview.</p>
     {% endif %}
 </div>

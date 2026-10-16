@@ -1,75 +1,69 @@
-<form class="mapping-form" hx-post="/api/db-resolve/{{ file.id }}" hx-target="#file-{{ file.id }}" hx-swap="outerHTML"
-    style="background: white; border: 1px solid #d1d5db; border-radius: 0.75rem; padding: 1.5rem; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05); margin-top: 1.5rem;">
-    
-    <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
-        <span style="font-size: 1.5rem;">🔍</span>
-        <h3 style="font-family: var(--font-heading); font-size: 1.5rem; font-weight: 800; color: var(--accent); margin: 0;">
-            Live Database Duplicate Review
-        </h3>
+{% import 'partials/icons.html' as icons %}
+<form class="mapping-form" hx-post="/api/db-resolve/{{ file.id }}" hx-target="#file-{{ file.id }}" hx-swap="outerHTML">
+    <div class="file-title-row" style="margin-bottom: 0.5rem;">
+        {{ icons.icon('database', 22, 'icon text-warning') }}
+        <h3 class="text-warning" style="margin: 0; border: none; padding: 0;">Live Database Duplicate Review</h3>
     </div>
-    <p style="font-size: 0.9rem; color: #64748b; margin-bottom: 1.5rem;">
-        The system scanned your unique records against the live Intelligence Database and found <strong>{{ file.db_matches | length }} record(s)</strong> that already exist in the database. Select an action for each match below to proceed with ingestion.
+    <p class="text-secondary" style="font-size: 0.9rem; margin-bottom: 1.5rem;">
+        The system scanned your unique records against the live Intelligence Database and found
+        <strong>{{ file.db_matches | length }} record(s)</strong> that already exist. Select an action for each match,
+        then complete ingestion.
     </p>
 
     {% for match in file.db_matches %}
-    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0.75rem; margin-bottom: 1.5rem; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
-        <!-- Title and Decision Header -->
-        <div style="background: #f1f5f9; border-bottom: 1px solid #e2e8f0; padding: 0.75rem 1.25rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-            <div style="font-weight: 700; color: var(--primary); font-size: 0.95rem;">
-                Uploaded Record (Row #{{ match.uploaded.source_row }}) &bull; Matches: <span style="color: var(--accent);">{{ match.existing.taxPayerName }}</span>
+    <div class="subpanel" style="margin-bottom: 1.5rem; padding: 0; overflow: hidden;">
+        <div class="file-title-row" style="justify-content: space-between; background: var(--surface-3); border-bottom: 1px solid var(--border-color); padding: 0.75rem 1.25rem;">
+            <div class="fw-700 text-primary" style="font-size: 0.95rem;">
+                Uploaded record (row #{{ match.uploaded.source_row }}) &bull;
+                Matches: <span class="text-warning">{{ match.existing.taxPayerName }}</span>
             </div>
-            
-            <!-- Per-row Action Picker -->
-            <div style="display: flex; align-items: center; gap: 8px;">
-                <label style="font-size: 12px; font-weight: bold; color: #475569; white-space: nowrap;">Resolution Strategy:</label>
-                <select name="decision_{{ match.uploaded.id }}" class="fancy-select" style="height: 32px; padding: 2px 28px 2px 8px; font-size: 12px; margin: 0; width: 220px; border-color: var(--accent); font-weight: 600;">
-                    <option value="skip" selected>⛔ Keep DB Version (Skip)</option>
-                    <option value="overwrite">🔄 Overwrite DB (Update)</option>
-                    <option value="keep">➕ Keep Both (Force Import)</option>
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <label for="decision-{{ match.uploaded.id }}" style="font-size: 0.8rem; font-weight: 700; color: var(--text-secondary); white-space: nowrap;">Resolution strategy</label>
+                <select id="decision-{{ match.uploaded.id }}" name="decision_{{ match.uploaded.id }}" class="fancy-select" style="width: 15rem; border-color: var(--accent-hover); font-weight: 600;">
+                    <option value="skip" selected>Keep DB version (skip)</option>
+                    <option value="overwrite">Overwrite DB (update)</option>
+                    <option value="keep">Keep both (force import)</option>
                 </select>
             </div>
         </div>
 
-        <!-- Comparative Grid -->
-        <div style="padding: 1.25rem; display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
-            <!-- Column 1: Uploaded record -->
-            <div style="border-right: 1px solid #e2e8f0; padding-right: 1.5rem;">
-                <div style="font-weight: bold; font-size: 12px; text-transform: uppercase; color: #64748b; margin-bottom: 0.5rem; letter-spacing: 0.05em;">Your Uploaded Data</div>
-                <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div class="compare-grid">
+            <div class="compare-col">
+                <div class="compare-col__title">Your uploaded data</div>
+                <div class="stack-list">
                     {% for t in targets %}
                     {% set val_idx = targets.index(t) %}
                     {% set val = match.uploaded.values[val_idx] if val_idx < match.uploaded.values|length else 'N/A' %}
-                    <div style="display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px dashed #f1f5f9; padding-bottom: 4px; font-size: 13px;">
-                        <span style="color: #475569; font-weight: 500;">{{ t }}:</span>
-                        <span style="color: #0f172a; font-weight: bold; text-align: right;">{{ val if val else 'N/A' }}</span>
+                    <div class="compare-row">
+                        <span class="compare-row__key">{{ t }}</span>
+                        <span class="compare-row__val">{{ val if val else 'N/A' }}</span>
                     </div>
                     {% endfor %}
                 </div>
             </div>
 
-            <!-- Column 2: Live DB record -->
-            <div>
-                <div style="font-weight: bold; font-size: 12px; text-transform: uppercase; color: #64748b; margin-bottom: 0.5rem; letter-spacing: 0.05em;">Live Database Records</div>
-                <div style="display: flex; flex-direction: column; gap: 8px;">
-                    <div style="display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px dashed #f1f5f9; padding-bottom: 4px; font-size: 13px;">
-                        <span style="color: #475569; font-weight: 500;">Taxpayer Name:</span>
-                        <span style="color: #0f172a; font-weight: bold; text-align: right;">{{ match.existing.taxPayerName }}</span>
+            <div class="compare-col">
+                <div class="compare-col__title">Live database record</div>
+                <div class="stack-list">
+                    <div class="compare-row">
+                        <span class="compare-row__key">Taxpayer Name</span>
+                        <span class="compare-row__val">{{ match.existing.taxPayerName }}</span>
                     </div>
-                    <div style="display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px dashed #f1f5f9; padding-bottom: 4px; font-size: 13px;">
-                        <span style="color: #475569; font-weight: 500;">Email:</span>
-                        <span style="color: #0f172a; font-weight: bold; text-align: right;">{{ match.existing.email or 'N/A' }}</span>
+                    <div class="compare-row">
+                        <span class="compare-row__key">Email</span>
+                        <span class="compare-row__val">{{ match.existing.email or 'N/A' }}</span>
                     </div>
-                    <div style="display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px dashed #f1f5f9; padding-bottom: 4px; font-size: 13px;">
-                        <span style="color: #475569; font-weight: 500;">Phone:</span>
-                        <span style="color: #0f172a; font-weight: bold; text-align: right;">{{ match.existing.phone or 'N/A' }}</span>
+                    <div class="compare-row">
+                        <span class="compare-row__key">Phone</span>
+                        <span class="compare-row__val">{{ match.existing.phone or 'N/A' }}</span>
                     </div>
-                    <div style="display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px dashed #f1f5f9; padding-bottom: 4px; font-size: 13px;">
-                        <span style="color: #475569; font-weight: 500;">Nature of Business:</span>
-                        <span style="color: #0f172a; font-weight: bold; text-align: right;">{{ match.existing.natureOfBusiness or 'N/A' }}</span>
+                    <div class="compare-row">
+                        <span class="compare-row__key">Nature of Business</span>
+                        <span class="compare-row__val">{{ match.existing.natureOfBusiness or 'N/A' }}</span>
                     </div>
-                    <div style="display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px dashed #f1f5f9; padding-bottom: 4px; font-size: 13px;">
-                        <span style="color: #475569; font-weight: 500;">Address:</span>
-                        <span style="color: #0f172a; font-weight: bold; text-align: right;">{{ match.existing.address or 'N/A' }}</span>
+                    <div class="compare-row">
+                        <span class="compare-row__key">Address</span>
+                        <span class="compare-row__val">{{ match.existing.address or 'N/A' }}</span>
                     </div>
                 </div>
             </div>
@@ -77,11 +71,10 @@
     </div>
     {% endfor %}
 
-    <!-- Submission Control -->
-    <div class="form-actions" style="margin-top: 1.5rem; display: flex; justify-content: flex-end; gap: 1rem; border-top: 1px solid #cbd5e1; padding-top: 1.25rem;">
-        <button type="button" class="btn btn-outline" onclick="this.closest('form').remove()">Cancel Ingestion</button>
-        <button type="submit" class="btn btn-primary" style="background: var(--accent); border-color: var(--accent);">
-            🚀 Resolve & Complete Ingestion
+    <div class="form-actions">
+        <button type="button" class="btn btn-outline" onclick="this.closest('form').remove()">Cancel ingestion</button>
+        <button type="submit" class="btn btn-accent">
+            {{ icons.icon('zap') }} Resolve &amp; complete ingestion
         </button>
     </div>
 </form>

@@ -1,37 +1,38 @@
+{% import 'partials/icons.html' as icons %}
 <form hx-post="/api/nuban/save-config/{{ file.id }}" hx-target="#nuban-file-{{ file.id }}" hx-swap="outerHTML" class="mapping-form">
     <div class="mapping-grid">
         <div class="mapping-row">
-            <label>Select Bank</label>
-            <select name="bank_code" class="fancy-select" required>
+            <label for="bank-{{ file.id }}">Select bank</label>
+            <select id="bank-{{ file.id }}" name="bank_code" class="fancy-select" required>
                 {% if banks %}
-                <option value="">-- Select Bank --</option>
+                <option value="">-- Select bank --</option>
                 {% for bank in banks %}
                 <option value="{{ bank.code }}" {% if file.selected_bank_code == bank.code %}selected{% endif %}>{{ bank.name }}</option>
                 {% endfor %}
                 {% else %}
-                <option value="">Error: Could not load banks</option>
+                <option value="">Error: could not load banks</option>
                 {% endif %}
             </select>
         </div>
         <div class="mapping-row">
-            <label>NUBAN Column</label>
-            <select name="nuban_col" class="fancy-select" required>
-                <option value="">-- Select NUBAN Column --</option>
+            <label for="nuban-col-{{ file.id }}">NUBAN column</label>
+            <select id="nuban-col-{{ file.id }}" name="nuban_col" class="fancy-select" required>
+                <option value="">-- Select NUBAN column --</option>
                 {% for header in file.headers %}
                 <option value="{{ header }}" {% if file.mapped_nuban_col == header %}selected{% endif %}>{{ header }}</option>
                 {% endfor %}
             </select>
         </div>
         <div class="mapping-row">
-            <label>Target Column (for names)</label>
-            <input type="text" name="target_col" class="fancy-select" placeholder="e.g. RESOLVED_NAME" value="{{ file.mapped_target_col or 'ACCOUNT_NAME_RESOLVED' }}" required>
+            <label for="target-col-{{ file.id }}">Target column (for names)</label>
+            <input type="text" id="target-col-{{ file.id }}" name="target_col" class="fancy-select" placeholder="e.g. RESOLVED_NAME" value="{{ file.mapped_target_col or 'ACCOUNT_NAME_RESOLVED' }}" required>
         </div>
     </div>
 
     {% if preview_rows %}
-    <div class="preview-section" style="margin-top: 2rem;">
-        <h3 style="margin-bottom: 1rem; font-size: 1.1rem; color: #94a3b8;">Data Preview (First 3 rows)</h3>
-        <div class="table-container" style="overflow-x: auto; background: rgba(15, 23, 42, 0.3); border-radius: 0.5rem; border: 1px solid var(--glass-border);">
+    <div style="margin-top: 1.5rem;">
+        <label class="mapping-section-label" style="margin-bottom: 0.5rem;">Data preview (first {{ preview_rows|length }} rows)</label>
+        <div class="table-container" style="margin: 0;">
             <table class="fancy-table">
                 <thead>
                     <tr>
@@ -55,6 +56,6 @@
     {% endif %}
 
     <div class="form-actions">
-        <button type="submit" class="btn btn-primary">Save Configuration</button>
+        <button type="submit" class="btn btn-primary">{{ icons.icon('save') }} Save configuration</button>
     </div>
 </form>

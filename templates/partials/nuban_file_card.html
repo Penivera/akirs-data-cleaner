@@ -1,22 +1,59 @@
-<div class="file-card" id="nuban-file-{{ file.id }}">
+{% import 'partials/icons.html' as icons %}
+{% set st = file.status or '' %}
+{% set status_key = 'failed' if ('Failed' in st or st.lower().startswith('error')) else 'processing' if ('Processing' in st or 'Analysing' in st or 'Queued' in st or 'Resolving' in st) else 'mapping' if 'Needs' in st else 'resolved' if st == 'Resolved' else 'configured' if st == 'Configured' else 'ready' if st == 'Ready' else 'new' %}
+{% set is_running = ('Analysing' in st) or ('Processing' in st) %}
+<div class="file-card" id="nuban-file-{{ file.id }}"
+    hx-get="/api/nuban/card/{{ file.id }}" hx-trigger="refreshcard" hx-swap="outerHTML"
+    {% if is_running %}data-processing-task="ana_{{ file.id }}" data-file-id="{{ file.id }}"{% endif %}>
     <div class="file-header">
         <div class="file-info">
             <span class="file-name">{{ file.original_filename }}</span>
-            <span class="file-status status-{{ file.status.split(' ')[0].lower() }}">{{ file.status }}</span>
+            <div class="file-status-indicator status-{{ status_key }}">
+                <span class="status-dot" aria-hidden="true"></span>
+                <span>{{ file.status }}</span>
+            </div>
         </div>
         <div class="file-actions">
-            {% if file.status == 'Resolved' %}
-            <button type="button" class="btn btn-success" onclick="AKIRSAuth.download('/api/download/{{ file.resolved_filename }}', '{{ file.resolved_filename }}')">Download Resolved</button>
-            <button class="btn btn-warning" hx-post="/api/nuban/config-form/{{ file.id }}" hx-target="#nuban-config-area-{{ file.id }}">Re-configure</button>
-            {% elif file.status == 'Configured' %}
-            <button class="btn btn-warning" hx-post="/api/nuban/config-form/{{ file.id }}" hx-target="#nuban-config-area-{{ file.id }}">Edit Config</button>
-            <button class="btn btn-primary" hx-post="/api/nuban/resolve/{{ file.id }}" hx-target="#nuban-file-{{ file.id }}" hx-swap="outerHTML">Start Resolution</button>
-            {% elif 'Ready' in file.status or 'Needs Sheet' in file.status %}
-            <button class="btn btn-primary" hx-post="/api/nuban/config-form/{{ file.id }}" hx-target="#nuban-config-area-{{ file.id }}">Configure Resolution</button>
+            {% if st == 'Resolved' %}
+            <button type="button" class="btn btn-success"
+                data-download-url="/api/download/{{ file.resolved_filename }}" data-download-name="{{ file.resolved_filename }}">
+                {{ icons.icon('download') }} Download resolved
+            </button>
+            <button class="btn btn-warning" hx-post="/api/nuban/config-form/{{ file.id }}" hx-target="#nuban-config-area-{{ file.id }}">
+                {{ icons.icon('refresh') }} Re-configure
+            </button>
+            {% elif st == 'Configured' %}
+            <button class="btn btn-warning" hx-post="/api/nuban/config-form/{{ file.id }}" hx-target="#nuban-config-area-{{ file.id }}">
+                {{ icons.icon('sliders') }} Edit config
+            </button>
+            <button class="btn btn-primary" hx-post="/api/nuban/resolve/{{ file.id }}" hx-target="#nuban-file-{{ file.id }}" hx-swap="outerHTML">
+                {{ icons.icon('zap') }} Start resolution
+            </button>
+            {% elif 'Ready' in st or 'Needs Sheet' in st %}
+            <button class="btn btn-primary" hx-post="/api/nuban/config-form/{{ file.id }}" hx-target="#nuban-config-area-{{ file.id }}">
+                {{ icons.icon('sliders') }} Configure resolution
+            </button>
             {% endif %}
-            <button class="btn btn-danger" hx-delete="/api/nuban/delete/{{ file.id }}" hx-target="#nuban-file-{{ file.id }}" hx-swap="delete">X</button>
+            <button type="button" class="btn btn-danger btn-icon" hx-delete="/api/nuban/delete/{{ file.id }}"
+                hx-target="#nuban-file-{{ file.id }}" hx-swap="delete"
+                title="Remove file" aria-label="Remove {{ file.original_filename }}"
+                hx-confirm="Delete {{ file.original_filename }}? Any resolved output is removed too. This cannot be undone.">
+                {{ icons.icon('trash') }}
+            </button>
         </div>
     </div>
+
+    {% if is_running %}
+    <div class="card-progress">
+        <div class="card-progress__msg">
+            <span class="spinner" aria-hidden="true"></span>
+            <span data-role="task-msg-text" aria-live="polite">Analysing file…</span>
+        </div>
+        <div class="progress is-indeterminate" role="progressbar" aria-label="Analysis in progress">
+            <span class="progress__bar"></span>
+        </div>
+    </div>
+    {% endif %}
 
     <div id="nuban-config-area-{{ file.id }}" class="mapping-area">
         {# Configuration form will load here via HTMX #}

@@ -12,9 +12,30 @@
     const RETURN_KEY = 'akirs_return_to';
 
     const AUTH_PAGE = '/auth';
-    const WORKSPACE_PAGE = '/app';
+    const WORKSPACE_PAGE = '/app/process';
 
     let refreshing = null;
+
+    // Filenames reach the browser verbatim, so they may contain spaces,
+    // apostrophes and other characters that are unsafe inside a JS string or
+    // a URL path. Percent-encode every segment (and nothing else) before the
+    // request goes out.
+    function encodeUrl(url) {
+        const raw = String(url == null ? '' : url);
+        const hashIndex = raw.indexOf('#');
+        const hash = hashIndex === -1 ? '' : raw.slice(hashIndex);
+        const withoutHash = hashIndex === -1 ? raw : raw.slice(0, hashIndex);
+        const queryIndex = withoutHash.indexOf('?');
+        const query = queryIndex === -1 ? '' : withoutHash.slice(queryIndex);
+        const path = queryIndex === -1 ? withoutHash : withoutHash.slice(0, queryIndex);
+        return path.split('/').map(encodeURIComponent).join('/') + query + hash;
+    }
+
+    function triggerOf(event, attribute) {
+        const target = event.target;
+        const el = target && target.closest ? target.closest('[' + attribute + ']') : null;
+        return el;
+    }
 
     const AKIRSAuth = {
         get access() { return localStorage.getItem(ACCESS_KEY); },
@@ -39,7 +60,11 @@
             if (location.pathname !== AUTH_PAGE) location.replace(AUTH_PAGE);
         },
         setReturnTo(path) {
-            if (path) sessionStorage.setItem(RETURN_KEY, path);
+            // Only same-origin paths may be restored, so a crafted link cannot
+            // bounce a freshly authenticated user off to another origin.
+            if (typeof path === 'string' && path.startsWith('/') && !path.startsWith('//')) {
+                sessionStorage.setItem(RETURN_KEY, path);
+            }
         },
         consumeReturnTo() {
             const path = sessionStorage.getItem(RETURN_KEY);
@@ -88,37 +113,71 @@
 
         saveBlob(blob, filename) {
             const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
+            const objectUrl = URL.createObjectURL(blob);
+            link.href = objectUrl;
             link.download = filename || 'download';
             document.body.appendChild(link);
             link.click();
             link.remove();
-            URL.revokeObjectURL(link.href);
+            // Revoking synchronously races the browser's own fetch of the blob
+            // and truncates large files, so give it a moment to start.
+            setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
         },
 
         async download(url, filename) {
-            const res = await this.apiFetch(url);
-            if (!res.ok) { window.alert('Download failed'); return; }
-            this.saveBlob(await res.blob(), filename);
+            const notice = window.AKIRSNotify
+                ? window.AKIRSNotify.progress(`Preparing ${filename || 'download'}…`)
+                : null;
+            try {
+                const res = await this.apiFetch(encodeUrl(url));
+                if (!res.ok) {
+                    if (window.AKIRSNotify) window.AKIRSNotify.error('Download failed. The file may have expired.');
+                    else window.alert('Download failed');
+                    return;
+                }
+                this.saveBlob(await res.blob(), filename);
+                if (window.AKIRSNotify) window.AKIRSNotify.success(`Downloaded ${filename || 'file'}`);
+            } finally {
+                if (notice) notice.remove();
+            }
         },
 
         async view(url) {
-            const res = await this.apiFetch(url);
-            if (!res.ok) { window.alert('Unable to open report'); return; }
-            const objectUrl = URL.createObjectURL(await res.blob());
-            window.open(objectUrl, '_blank', 'noopener');
-            setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+            const notice = window.AKIRSNotify ? window.AKIRSNotify.progress('Opening report…') : null;
+            try {
+                const res = await this.apiFetch(encodeUrl(url));
+                if (!res.ok) {
+                    if (window.AKIRSNotify) window.AKIRSNotify.error('Unable to open the report.');
+                    else window.alert('Unable to open report');
+                    return;
+                }
+                const objectUrl = URL.createObjectURL(await res.blob());
+                window.open(objectUrl, '_blank', 'noopener');
+                setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+            } finally {
+                if (notice) notice.remove();
+            }
         },
 
         async submitDownloadForm(form) {
-            const res = await this.apiFetch(form.action, {
-                method: (form.method || 'POST').toUpperCase(),
-                body: new FormData(form),
-            });
-            if (!res.ok) { window.alert('Download failed'); return; }
-            const disposition = res.headers.get('Content-Disposition') || '';
-            const match = /filename="?([^";]+)"?/.exec(disposition);
-            this.saveBlob(await res.blob(), match ? match[1] : 'AKIRS_download.zip');
+            const notice = window.AKIRSNotify ? window.AKIRSNotify.progress('Preparing your ZIP…') : null;
+            try {
+                const res = await this.apiFetch(form.action, {
+                    method: (form.method || 'POST').toUpperCase(),
+                    body: new FormData(form),
+                });
+                if (!res.ok) {
+                    if (window.AKIRSNotify) window.AKIRSNotify.error('Download failed.');
+                    else window.alert('Download failed');
+                    return;
+                }
+                const disposition = res.headers.get('Content-Disposition') || '';
+                const match = /filename="?([^";]+)"?/.exec(disposition);
+                this.saveBlob(await res.blob(), match ? match[1] : 'AKIRS_download.zip');
+                if (window.AKIRSNotify) window.AKIRSNotify.success('Download ready.');
+            } finally {
+                if (notice) notice.remove();
+            }
         },
 
         async logout() {
@@ -162,6 +221,24 @@
         if (form && form.id === 'batch-download-form') {
             event.preventDefault();
             AKIRSAuth.submitDownloadForm(form);
+        }
+    });
+
+    // Downloads and inline previews are driven by data attributes rather than
+    // inline onclick handlers: a filename carrying an apostrophe, quote or
+    // newline would otherwise terminate the JS string literal in the attribute
+    // and the click would do nothing at all.
+    document.addEventListener('click', (event) => {
+        const downloadBtn = triggerOf(event, 'data-download-url');
+        if (downloadBtn) {
+            event.preventDefault();
+            AKIRSAuth.download(downloadBtn.dataset.downloadUrl, downloadBtn.dataset.downloadName || '');
+            return;
+        }
+        const viewBtn = triggerOf(event, 'data-view-url');
+        if (viewBtn) {
+            event.preventDefault();
+            AKIRSAuth.view(viewBtn.dataset.viewUrl);
         }
     });
 
